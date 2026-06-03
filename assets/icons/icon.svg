@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" fill="#000"/>
+  <!-- Green circle (top-left) -->
+  <circle cx="8" cy="8" r="4.5" fill="#00c800"/>
+  <!-- Red diamond (top-right) -->
+  <polygon points="24,3 29,8 24,13 19,8" fill="#ff2020"/>
+  <!-- Blue diamond (bottom-left) -->
+  <polygon points="8,19 13,24 8,29 3,24" fill="#2040ff"/>
+  <!-- Green circle (bottom-right) -->
+  <circle cx="24" cy="24" r="4.5" fill="#00c800"/>
+  <!-- Red diamond (center) -->
+  <polygon points="16,11 21,16 16,21 11,16" fill="#ff2020"/>
+</svg>
