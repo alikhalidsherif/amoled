@@ -1,5 +1,7 @@
 # AMOLED Diamond PenTile Simulator
 
+[**Live Demo →**](https://amoled.ali.et)
+
 A pure client-side Diamond PenTile AMOLED subpixel lattice simulator. Renders true emitter geometry — green circles, red/blue diamonds, strict black matrix — directly in the browser with zero backend dependency.
 
 Built for display enthusiasts who want to see and manipulate actual subpixel structure.
