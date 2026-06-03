@@ -325,7 +325,7 @@
     function init() {
         ui.scaleMode.value = "auto";
         ui.pixelScaleInput.value = "8";
-        ui.fpsInput.value = "12";
+        ui.fpsInput.value = "24";
         ui.activeBrightness.value = "100";
         ui.activeBrightnessVal.textContent = "100%";
         ui.inactiveBrightness.value = "4";
@@ -337,6 +337,9 @@
         setScaleMode("auto");
         loadDefaultImage();
         bindUiEvents();
+
+        // Open panel by default
+        togglePanel();
     }
 
     global.amoledClient = {
