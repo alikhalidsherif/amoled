@@ -40,7 +40,10 @@
         mediaInfo: document.getElementById("media-info")
     };
 
-    const DEFAULT_IMAGE = "assets/default-test.png";
+    function getDefaultImage() {
+        const isPortrait = window.innerHeight > window.innerWidth;
+        return isPortrait ? "assets/test-portrait.gif" : "assets/test-landscape.gif";
+    }
 
     let currentMode = "test-pattern";
 
@@ -53,28 +56,20 @@
     }
 
     function loadDefaultImage() {
-        const img = new Image();
-        img.onload = function () {
-            loader._element = img;
-            loader._isAnimated = false;
-            loader._isVideo = false;
+        const src = getDefaultImage();
+        loader.load(src).then(function () {
             currentMode = "media";
-
             const stats = sim.getStats();
             const frameW = stats.gridCols;
             const frameH = stats.gridRows;
-            loader.resizeTarget(frameW, frameH);
-
-            const frame = loader.getFrame(frameW, frameH);
-            if (frame) {
+            loader.setFps(12);
+            loader.startLoop(function (frame) {
                 sim.loadFrameBuffer(frame.width, frame.height, frame.data);
-            }
+            }, frameW, frameH);
             updateStatus("media");
-        };
-        img.onerror = function () {
+        }).catch(function () {
             testRender();
-        };
-        img.src = DEFAULT_IMAGE;
+        });
     }
 
     const ENGINE_CONFIG = AMOLED.DEFAULT_ENGINE_CONFIG;
@@ -313,6 +308,17 @@
                 loader.resizeTarget(stats.gridCols, stats.gridRows);
             }
             updateStatus("resize");
+        });
+
+        // Reload correct orientation test image on orientation change
+        global.addEventListener("orientationchange", function () {
+            if (currentMode === "media" && loader._element) {
+                const newSrc = getDefaultImage();
+                if (loader._blobUrl !== newSrc && !loader._playing) {
+                    loader.stop();
+                    loadDefaultImage();
+                }
+            }
         });
     }
 
