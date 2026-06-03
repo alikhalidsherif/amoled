@@ -40,6 +40,8 @@
         mediaInfo: document.getElementById("media-info")
     };
 
+    const DEFAULT_IMAGE = "assets/default-test.png";
+
     let currentMode = "test-pattern";
 
     function testRender() {
@@ -48,6 +50,31 @@
         const data = createTestPattern(w, h);
         sim.loadFrameBuffer(w, h, data);
         updateStatus("test-pattern");
+    }
+
+    function loadDefaultImage() {
+        const img = new Image();
+        img.onload = function () {
+            loader._element = img;
+            loader._isAnimated = false;
+            loader._isVideo = false;
+            currentMode = "media";
+
+            const stats = sim.getStats();
+            const frameW = stats.gridCols;
+            const frameH = stats.gridRows;
+            loader.resizeTarget(frameW, frameH);
+
+            const frame = loader.getFrame(frameW, frameH);
+            if (frame) {
+                sim.loadFrameBuffer(frame.width, frame.height, frame.data);
+            }
+            updateStatus("media");
+        };
+        img.onerror = function () {
+            testRender();
+        };
+        img.src = DEFAULT_IMAGE;
     }
 
     const ENGINE_CONFIG = AMOLED.DEFAULT_ENGINE_CONFIG;
@@ -302,7 +329,7 @@
         if (ui.mediaInfo) ui.mediaInfo.style.display = "none";
 
         setScaleMode("auto");
-        testRender();
+        loadDefaultImage();
         bindUiEvents();
     }
 
