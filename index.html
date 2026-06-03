@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diamond PenTile AMOLED Simulator</title>
+    <link rel="stylesheet" href="styles/demo.css">
+</head>
+<body>
+    <div id="display-shell">
+        <canvas id="display"></canvas>
+    </div>
+
+    <button id="panel-toggle" title="Toggle controls">&#9776;</button>
+
+    <div id="sim-ui">
+        <div class="panel-inner">
+            <div class="section-header" data-section="display">
+                <span class="arrow">&#9660;</span> Display
+            </div>
+            <div class="section-body" data-section="display">
+                <div class="row">
+                    <label for="fps-input">FPS</label>
+                    <input id="fps-input" type="number" min="1" max="60" step="1" value="12">
+                </div>
+                <div class="row">
+                    <label for="scale-mode">Scale</label>
+                    <select id="scale-mode">
+                        <option value="auto" selected>Auto density</option>
+                        <option value="manual">Manual pitch</option>
+                    </select>
+                </div>
+                <div class="row" id="manual-scale-row" style="display: none;">
+                    <label for="pixel-scale-input">Pitch</label>
+                    <input id="pixel-scale-input" type="number" min="2" max="24" step="0.5" value="8">
+                </div>
+            </div>
+
+            <div class="section-header" data-section="brightness">
+                <span class="arrow">&#9660;</span> Brightness
+            </div>
+            <div class="section-body" data-section="brightness">
+                <div class="slider-row">
+                    <label for="active-brightness">Active</label>
+                    <input id="active-brightness" type="range" min="0" max="100" step="1" value="100">
+                    <span class="slider-val" id="active-brightness-val">100%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="inactive-brightness">Off-pixel</label>
+                    <input id="inactive-brightness" type="range" min="0" max="50" step="1" value="4">
+                    <span class="slider-val" id="inactive-brightness-val">4%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="bloom-slider">Bloom</label>
+                    <input id="bloom-slider" type="range" min="0" max="100" step="1" value="0">
+                    <span class="slider-val" id="bloom-slider-val">0%</span>
+                </div>
+            </div>
+
+            <div class="section-header" data-section="media">
+                <span class="arrow">&#9660;</span> Media
+            </div>
+            <div class="section-body" data-section="media">
+                <div class="upload-area" id="upload-area">
+                    Drop image / GIF / video here<br>or click to browse
+                </div>
+                <input type="file" id="file-upload-input" accept="image/*,video/*">
+                <div id="upload-status" style="color:#555;font-size:9px;min-height:14px;"></div>
+                <div id="media-info"></div>
+            </div>
+
+            <div class="section-header" data-section="controls">
+                <span class="arrow">&#9660;</span> Controls
+            </div>
+            <div class="section-body" data-section="controls">
+                <div class="btn-row">
+                    <button id="test-pattern-btn" class="primary">Test Pattern</button>
+                    <button id="clear-btn">Clear Media</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="sim-status">starting...</div>
+    </div>
+
+    <script src="src/gifuct.js"></script>
+    <script src="src/config.js"></script>
+    <script src="src/frame-buffer.js"></script>
+    <script src="src/diamond-pentile-geometry.js"></script>
+    <script src="src/amoled-renderer.js"></script>
+    <script src="src/patterns.js"></script>
+    <script src="src/media-loader.js"></script>
+    <script src="src/app.js"></script>
+</body>
+</html>

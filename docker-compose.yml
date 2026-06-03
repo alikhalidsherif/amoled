@@ -1,0 +1,13 @@
+services:
+  amoled-client:
+    build: .
+    container_name: amoled-client
+    restart: unless-stopped
+    ports:
+      - "8051:80"
+    networks:
+      - npm-network
+
+networks:
+  npm-network:
+    external: true
