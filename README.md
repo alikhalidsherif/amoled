@@ -8,12 +8,19 @@ Built for display enthusiasts who want to see and manipulate actual subpixel str
 
 ## Features
 
+- **GPU physical-emitter simulation (WebGL2)** — every subpixel is treated as a physical light emitter, not a filtered RGB rectangle
+- **Linear-light color pipeline** — sRGB → linear → simulate → linear → sRGB; no additive math on gamma-encoded values
 - **True Diamond PenTile geometry** — staggered lattice with configurable pitch, black matrix, and shape ratios
+- **Emitter response curve** — `L = intensity^γ` (default γ = 1.8), independent of the sRGB transfer function
+- **Per-channel physics** — independent maximum output (R 0.70 / G 1.00 / B 0.55) and optical spread σ per color
+- **Microscopic optical spill** — anisotropic gaussian halos bleeding into neighbouring subpixels (~5% of energy, tunable)
+- **Brightness-dependent bloom** — smooth `max(lum − threshold)^power` extraction, blurred separately from micro-spill
+- **Supersampling** — internal render at 1–4× per axis with fragment budget cap, downsampled to output
+- **HDR intermediate buffers** — RGBA16F when available, RGBA8 fallback
 - **Animated GIF support** — frame-by-frame decode via [gifuct-js](https://github.com/nicgirault/gifuct.js), works in all browsers
 - **Video playback** — native `<video>` element with client-side rendering
 - **Image loading** — drag-and-drop or file picker for PNG, JPG, WebP, BMP, TIFF
-- **Bloom/glow effect** — Gaussian blur with additive color mixing
-- **Brightness controls** — separate active and off-pixel brightness sliders
+- **Canvas 2D fallback** — automatic when WebGL2 is unavailable
 - **Aspect-ratio preservation** — letterbox/pillarbox black padding for non-matching sources
 - **Auto-density scaling** — adapts to any screen size while keeping subpixels visible
 - **Modular architecture** — extract individual components for other projects
@@ -45,15 +52,16 @@ Grab these files for a standalone PenTile display element:
 ```
 src/diamond-pentile-geometry.js  — Zero-dependency lattice builder
 src/frame-buffer.js             — Zero-dependency pixel buffer
-src/amoled-renderer.js          — Canvas 2D renderer with bloom
+src/amoled-gpu-renderer.js      — WebGL2 physical-emitter simulator
+src/amoled-renderer.js          — Canvas 2D renderer (fallback)
 ```
 
 ```html
 <script src="diamond-pentile-geometry.js"></script>
 <script src="frame-buffer.js"></script>
-<script src="amoled-renderer.js"></script>
+<script src="amoled-gpu-renderer.js"></script>
 <script>
-    const sim = new AMOLED.AMOLEDRenderer({
+    const sim = new AMOLED.GPUPentileSimulator({
         containerSelector: "#display",
         canvasSelector: "#canvas"
     });
@@ -66,14 +74,17 @@ src/amoled-renderer.js          — Canvas 2D renderer with bloom
 
 ## API
 
-### `AMOLEDRenderer`
+### `GPUPentileSimulator` / `AMOLEDRenderer`
+
+Both renderers share the same interface; the app picks the GPU one when
+WebGL2 is available.
 
 | Method | Description |
 |---|---|
 | `loadFrameBuffer(w, h, data)` | Load RGB pixel data for rendering |
 | `updateConfig(partial)` | Update renderer config at runtime |
 | `resize()` | Force viewport recalculation |
-| `getStats()` | Get current viewport, grid, and frame info |
+| `getStats()` | Get current viewport, grid, and frame info (includes `engine`) |
 | `destroy()` | Clean up listeners and observers |
 
 ### `ClientMediaLoader`
@@ -100,6 +111,22 @@ AMOLED.DEFAULT_ENGINE_CONFIG = {
     blackMatrixRatio: 0.22,  // Black matrix spacing
     greenSizeRatio: 0.80,    // Green subpixel size
     diamondSizeRatio: 0.90,  // Red/blue diamond size
+
+    // Physical emitter model (GPU renderer)
+    emitterGamma: 1.8,       // Emitter response exponent (L = drive^gamma)
+    opticalSpill: 0.05,      // Gaussian spill fraction per emitter
+    redMaxOutput: 0.70,      // Per-channel maximum output
+    greenMaxOutput: 1.00,
+    blueMaxOutput: 0.55,
+    redSigma: 0.45,          // Optical spread sigma (pitch units)
+    greenSigma: 0.35,
+    blueSigma: 0.55,
+    supersample: 2,          // Internal resolution multiplier (1-4)
+    maxInternalPixels: 33554432,  // Emission-pass fragment budget
+    bloomThreshold: 0.70,    // Smooth bloom onset in linear luminance
+    bloomPower: 2.0,         // Bloom falloff exponent
+    bloomRadius: 12,         // Bloom blur radius (device px)
+
     inactiveLevel: 0.035,    // Off-pixel brightness (0-1)
     activeLevel: 1.0,        // Active brightness (0-1)
     bloomIntensity: 0.0,     // Glow intensity (0-1)
@@ -111,29 +138,55 @@ AMOLED.DEFAULT_ENGINE_CONFIG = {
 
 ```
 src/
-├── config.js                 Engine defaults
+├── config.js                 Engine defaults (incl. physics parameters)
 ├── frame-buffer.js           RGB pixel buffer
 ├── diamond-pentile-geometry.js  Subpixel lattice builder
-├── amoled-renderer.js        Canvas 2D renderer + bloom
+├── amoled-gpu-renderer.js    WebGL2 physical-emitter pipeline
+├── amoled-renderer.js        Canvas 2D fallback renderer
 ├── media-loader.js           GIF/image/video decoder
 ├── patterns.js               Built-in test pattern
 ├── gifuct.js                 GIF decoder library (bundled)
 └── app.js                    Demo page wiring
+tests/
+└── lattice-parity.js         Verifies shader lattice == CPU geometry
 ```
-
-## Browser Support
-
-- **Full**: Chrome 90+, Edge 90+, Firefox 90+, Safari 15+
-- **GIF decode**: All browsers (gifuct-js is pure JavaScript)
-- **Video**: All browsers with `<video>` support
-- **Bloom**: Requires `ctx.filter` support (all modern browsers)
 
 ## How It Works
 
-1. **Geometry engine** builds a staggered Diamond PenTile lattice — green circles at alternating positions, red/blue diamonds filling the gaps
-2. **Renderer** maps frame buffer pixels to individual subpixels using normalized grid coordinates
-3. **Bloom pass** renders to a 1/4 resolution offscreen canvas, blurs it, and composites with additive blending
-4. **Media loader** decodes GIF frames via LZW decompression (gifuct-js), reads video frames via Canvas `drawImage`, and outputs RGB data for the renderer
+The GPU renderer treats the virtual AMOLED as a collection of physical
+light emitters:
+
+1. **Emission pass** (supersampled, HDR) — the PenTile lattice is rebuilt
+   analytically per fragment. Each nearby emitter samples its logical pixel,
+   converts sRGB → linear, applies `maxOutput × drive^gamma`, and contributes
+   a hard-edged core shape (circle for G, diamond for R/B) plus an anisotropic
+   gaussian spill halo. All light accumulates in linear RGB.
+2. **Bloom extraction** — luminance above a smooth threshold is raised to a
+   power and scaled; this is a separate, larger-scale effect from micro-spill.
+3. **Blur + composite** — separable gaussian blur at quarter res, added to
+   the emission buffer in linear space.
+4. **Encode** — linear result is converted back to sRGB for the host monitor.
+
+The Canvas 2D fallback draws subpixel shapes directly with a simple bloom
+composite.
+
+### Simulation pipeline
+
+```text
+Normal RGB image → linearize → PenTile sampling → individual R/G/G emitters
+→ emitter response → microscopic optical spreading → large-scale brightness
+bloom → linear accumulation → sRGB encoding → normal monitor
+```
+
+These are visual-simulation starting points, not specifications of any
+particular AMOLED panel — every parameter is exposed for tuning.
+
+## Browser Support
+
+- **GPU simulation**: any browser with WebGL2; `EXT_color_buffer_float` enables HDR intermediates (RGBA8 fallback otherwise)
+- **Canvas 2D fallback**: all modern browsers
+- **GIF decode**: All browsers (gifuct-js is pure JavaScript)
+- **Video**: All browsers with `<video>` support
 
 ## License
 

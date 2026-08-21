@@ -90,6 +90,11 @@
             const offsetX = offX + viewportWidth * 0.5 - centerX;
             const offsetY = offY + viewportHeight * 0.5 - centerY;
 
+            // Raw (pre-offset) lattice origin, exposed so analytic/GPU
+            // renderers can reconstruct the identical emitter lattice.
+            this.latticeOriginX = offsetX;
+            this.latticeOriginY = offsetY;
+
             const edgePadding = Math.max(greenRadius, diamondRadius) + 1;
 
             const visible = [];

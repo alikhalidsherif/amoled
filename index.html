@@ -68,6 +68,15 @@
                     <label for="pixel-scale-input">Pitch</label>
                     <input id="pixel-scale-input" type="number" min="2" max="24" step="0.5" value="8">
                 </div>
+                <div class="row">
+                    <label for="supersample-select">Supersample</label>
+                    <select id="supersample-select">
+                        <option value="1">1x (fast)</option>
+                        <option value="2" selected>2x</option>
+                        <option value="3">3x</option>
+                        <option value="4">4x (slow)</option>
+                    </select>
+                </div>
             </div>
 
             <div class="section-header" data-section="brightness">
@@ -88,6 +97,26 @@
                     <label for="bloom-slider">Bloom</label>
                     <input id="bloom-slider" type="range" min="0" max="100" step="1" value="0">
                     <span class="slider-val" id="bloom-slider-val">0%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="gamma-slider">Emitter &gamma;</label>
+                    <input id="gamma-slider" type="range" min="10" max="26" step="1" value="18">
+                    <span class="slider-val" id="gamma-slider-val">1.8</span>
+                </div>
+                <div class="slider-row">
+                    <label for="spill-slider">Optical spill</label>
+                    <input id="spill-slider" type="range" min="0" max="20" step="1" value="5">
+                    <span class="slider-val" id="spill-slider-val">5%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="bloom-threshold">Bloom floor</label>
+                    <input id="bloom-threshold" type="range" min="40" max="95" step="1" value="70">
+                    <span class="slider-val" id="bloom-threshold-val">70%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="bloom-radius">Bloom radius</label>
+                    <input id="bloom-radius" type="range" min="2" max="30" step="1" value="12">
+                    <span class="slider-val" id="bloom-radius-val">12px</span>
                 </div>
             </div>
 
@@ -127,6 +156,7 @@
     <script src="src/frame-buffer.js"></script>
     <script src="src/diamond-pentile-geometry.js"></script>
     <script src="src/amoled-renderer.js"></script>
+    <script src="src/amoled-gpu-renderer.js"></script>
     <script src="src/patterns.js"></script>
     <script src="src/media-loader.js"></script>
     <script src="src/app.js"></script>

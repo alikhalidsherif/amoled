@@ -4,6 +4,7 @@
     const AMOLED = global.AMOLED || (global.AMOLED = {});
 
     const AMOLEDRenderer = AMOLED.AMOLEDRenderer;
+    const GPUPentileSimulator = AMOLED.GPUPentileSimulator;
     const ClientMediaLoader = AMOLED.ClientMediaLoader;
     const createTestPattern = AMOLED.createTestPattern;
 
@@ -11,10 +12,25 @@
         throw new Error("AMOLED client boot failed: modules are missing.");
     }
 
-    const sim = new AMOLEDRenderer({
-        containerSelector: "#display-shell",
-        canvasSelector: "#display"
-    });
+    function createSimulator() {
+        const options = {
+            containerSelector: "#display-shell",
+            canvasSelector: "#display"
+        };
+
+        // Prefer the GPU physical-emitter pipeline; fall back to the
+        // Canvas 2D renderer when WebGL2 is unavailable.
+        if (GPUPentileSimulator && GPUPentileSimulator.isSupported()) {
+            try {
+                return new GPUPentileSimulator(options);
+            } catch (err) {
+                console.warn("[amoled] GPU simulator unavailable, using Canvas 2D:", err);
+            }
+        }
+        return new AMOLEDRenderer(options);
+    }
+
+    const sim = createSimulator();
 
     const loader = new ClientMediaLoader();
 
@@ -32,6 +48,15 @@
         inactiveBrightnessVal: document.getElementById("inactive-brightness-val"),
         bloomSlider: document.getElementById("bloom-slider"),
         bloomSliderVal: document.getElementById("bloom-slider-val"),
+        gammaSlider: document.getElementById("gamma-slider"),
+        gammaSliderVal: document.getElementById("gamma-slider-val"),
+        spillSlider: document.getElementById("spill-slider"),
+        spillSliderVal: document.getElementById("spill-slider-val"),
+        bloomThreshold: document.getElementById("bloom-threshold"),
+        bloomThresholdVal: document.getElementById("bloom-threshold-val"),
+        bloomRadius: document.getElementById("bloom-radius"),
+        bloomRadiusVal: document.getElementById("bloom-radius-val"),
+        supersampleSelect: document.getElementById("supersample-select"),
         uploadArea: document.getElementById("upload-area"),
         fileUploadInput: document.getElementById("file-upload-input"),
         uploadStatus: document.getElementById("upload-status"),
@@ -80,6 +105,8 @@
         const activeLevel = Math.round((sim.config.activeLevel || 1) * 100);
         const inactiveLevel = Math.round((sim.config.inactiveLevel || 0.035) * 100);
         const bloomLevel = Math.round((sim.config.bloomIntensity || 0) * 100);
+        const gamma = (sim.config.emitterGamma || 1.8).toFixed(1);
+        const spillPct = Math.round((sim.config.opticalSpill || 0) * 100);
 
         let mediaLine = "";
         if (currentMode === "media" && loader._element) {
@@ -88,12 +115,19 @@
                 (loader.isAnimated() ? " (animated)" : " (static)");
         }
 
+        let engineLine = "engine=" + (stats.engine || "canvas2d");
+        if (stats.supersample) {
+            engineLine += " ss=" + stats.supersample + "x internal=" + stats.internalResolution;
+        }
+
         ui.status.textContent =
             label + " | " +
             stats.viewportWidth + "x" + stats.viewportHeight +
             "  pitch=" + stats.pixelScale +
             "  grid=" + stats.gridCols + "x" + stats.gridRows +
             "\nactive=" + activeLevel + "%  off=" + inactiveLevel + "%  bloom=" + bloomLevel + "%" +
+            "\n" + engineLine +
+            "  gamma=" + gamma + "  spill=" + spillPct + "%" +
             mediaLine;
     }
 
@@ -262,6 +296,39 @@
             updateStatus("bloom");
         });
 
+        ui.gammaSlider.addEventListener("input", function () {
+            const gamma = Number(ui.gammaSlider.value) / 10;
+            sim.updateConfig({ emitterGamma: gamma });
+            ui.gammaSliderVal.textContent = gamma.toFixed(1);
+            updateStatus("emitter-response");
+        });
+
+        ui.spillSlider.addEventListener("input", function () {
+            const pct = Number(ui.spillSlider.value);
+            sim.updateConfig({ opticalSpill: pct / 100 });
+            ui.spillSliderVal.textContent = pct + "%";
+            updateStatus("optical-spill");
+        });
+
+        ui.bloomThreshold.addEventListener("input", function () {
+            const pct = Number(ui.bloomThreshold.value);
+            sim.updateConfig({ bloomThreshold: pct / 100 });
+            ui.bloomThresholdVal.textContent = pct + "%";
+            updateStatus("bloom-threshold");
+        });
+
+        ui.bloomRadius.addEventListener("input", function () {
+            const r = Number(ui.bloomRadius.value);
+            sim.updateConfig({ bloomRadius: r });
+            ui.bloomRadiusVal.textContent = r + "px";
+            updateStatus("bloom-radius");
+        });
+
+        ui.supersampleSelect.addEventListener("change", function () {
+            sim.updateConfig({ supersample: Number(ui.supersampleSelect.value) || 1 });
+            updateStatus("supersample");
+        });
+
         ui.testPatternBtn.addEventListener("click", function () {
             clearMedia();
         });
@@ -332,6 +399,17 @@
         ui.inactiveBrightnessVal.textContent = "4%";
         ui.bloomSlider.value = "0";
         ui.bloomSliderVal.textContent = "0%";
+        ui.gammaSlider.value = String(Math.round((sim.config.emitterGamma || 1.8) * 10));
+        ui.gammaSliderVal.textContent = (sim.config.emitterGamma || 1.8).toFixed(1);
+        ui.spillSlider.value = String(Math.round((sim.config.opticalSpill || 0.05) * 100));
+        ui.spillSliderVal.textContent = Math.round((sim.config.opticalSpill || 0.05) * 100) + "%";
+        ui.bloomThreshold.value = String(Math.round((sim.config.bloomThreshold || 0.7) * 100));
+        ui.bloomThresholdVal.textContent = Math.round((sim.config.bloomThreshold || 0.7) * 100) + "%";
+        ui.bloomRadius.value = String(sim.config.bloomRadius || 12);
+        ui.bloomRadiusVal.textContent = (sim.config.bloomRadius || 12) + "px";
+        if (ui.supersampleSelect) {
+            ui.supersampleSelect.value = String(sim.config.supersample || 2);
+        }
         if (ui.mediaInfo) ui.mediaInfo.style.display = "none";
 
         setScaleMode("auto");

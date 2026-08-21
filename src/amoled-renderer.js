@@ -305,6 +305,7 @@
         getStats() {
             var fb = this.frameBuffer;
             return {
+                engine: "canvas2d",
                 viewportWidth: this.viewportWidth,
                 viewportHeight: this.viewportHeight,
                 pixelScale: this.currentPixelScale,
