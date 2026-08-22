@@ -118,12 +118,22 @@
                     : abs(dp.x) + abs(dp.y) - rad;
                 float core = smoothstep(aa, -aa, sd);
 
-                // Anisotropic gaussian optical spill into neighbours (§10).
+                // Two-lobe optical spill (§10): the near-field lobe is tight
+                // (~0.4 sigma) and does the R/G/B colour blending across
+                // subpixel boundaries; the far-field lobe adds the soft
+                // inter-pixel glow. Splitting them keeps edges crisp at high
+                // spill levels instead of smearing the whole cell.
+                float nearW = uSpill * 0.65;
+                float farW = uSpill * 0.35;
                 float sx2 = 2.0 * sig * sig * uPitch.x * uPitch.x;
                 float sy2 = 2.0 * sig * sig * uPitch.y * uPitch.y;
-                float halo = exp(-dp.x * dp.x / sx2 - dp.y * dp.y / sy2);
+                float nx2 = sx2 * 0.16;
+                float ny2 = sy2 * 0.16;
+                float halo =
+                    exp(-dp.x * dp.x / nx2 - dp.y * dp.y / ny2) * nearW +
+                    exp(-dp.x * dp.x / sx2 - dp.y * dp.y / sy2) * farW;
 
-                float e = A * ((1.0 - uSpill) * core + uSpill * halo);
+                float e = A * ((1.0 - uSpill) * core + halo);
 
                 if (isGreen)          acc += vec3(0.0, 1.0, 0.0) * e;
                 else if (phase < 0.5) acc += vec3(1.0, 0.0, 0.0) * e;
@@ -635,10 +645,16 @@
             gl.bindVertexArray(null);
         }
 
+        // Rolling GPU cost estimate for the adaptive quality governor.
+        getRenderCost() {
+            return this._renderMsAvg || 0;
+        }
+
         render() {
             if (this._contextLost) {
                 return;
             }
+            this._renderStart = performance.now();
             const gl = this.gl;
             const m = this.geometry.metrics;
             const cfg = this.config;
@@ -734,6 +750,12 @@
             });
 
             gl.activeTexture(gl.TEXTURE0);
+
+            // CPU submit time is a lower bound of frame cost; gl.FINISH
+            // would be accurate but stalls the pipeline every frame.
+            const now = performance.now();
+            const dt = now - (this._renderStart || now);
+            this._renderMsAvg = (this._renderMsAvg || 0) * 0.9 + dt * 0.1;
         }
 
         getStats() {

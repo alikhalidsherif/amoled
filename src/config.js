@@ -20,10 +20,11 @@
         // Emitter response exponent: L = intensity^gamma (§8)
         emitterGamma: 1.8,
 
-        // Fraction of emitter energy in the gaussian optical spill halo (§10).
-        // Higher values blend adjacent R/G/B into cleaner whites at the cost
-        // of slightly soft subpixel edges.
-        opticalSpill: 0.12,
+        // Fraction of emitter energy in the gaussian optical spill halos
+        // (§10). High values blend adjacent R/G/B into clean whites; above
+        // ~50% the hard core carries under half the energy and the discrete
+        // subpixel structure dissolves.
+        opticalSpill: 0.40,
 
         // Per-channel maximum output, relative (§3 / §17)
         redMaxOutput: 0.70,

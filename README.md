@@ -16,7 +16,9 @@ Built for display enthusiasts who want to see and manipulate actual subpixel str
 - **Microscopic optical spill** — anisotropic gaussian halos bleeding into neighbouring subpixels (~5% of energy, tunable)
 - **Brightness-dependent bloom** — smooth `max(lum − threshold)^power` extraction, blurred separately from micro-spill
 - **Supersampling** — internal render at 1–4× per axis with fragment budget cap, downsampled to output
+- **Adaptive quality governor** — watches real render cost against the target FPS and walks supersampling / internal resolution / DPR down (or back up); weak devices start on a light tier automatically
 - **HDR intermediate buffers** — RGBA16F when available, RGBA8 fallback
+- **WebGL context-loss recovery** — full pipeline rebuild on `webglcontextrestored`
 - **Animated GIF support** — frame-by-frame decode via [gifuct-js](https://github.com/nicgirault/gifuct.js), works in all browsers
 - **Video playback** — native `<video>` element with client-side rendering
 - **Image loading** — drag-and-drop or file picker for PNG, JPG, WebP, BMP, TIFF
@@ -114,7 +116,7 @@ AMOLED.DEFAULT_ENGINE_CONFIG = {
 
     // Physical emitter model (GPU renderer)
     emitterGamma: 1.8,       // Emitter response exponent (L = drive^gamma)
-    opticalSpill: 0.12,      // Gaussian spill fraction per emitter
+    opticalSpill: 0.40,      // Gaussian spill fraction per emitter
     redMaxOutput: 0.70,      // Per-channel maximum output
     greenMaxOutput: 1.00,
     blueMaxOutput: 0.55,

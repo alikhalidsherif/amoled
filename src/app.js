@@ -12,11 +12,29 @@
         throw new Error("AMOLED client boot failed: modules are missing.");
     }
 
+    // Coarse device tiering before first render: weak devices get a light
+    // configuration up front instead of freezing on the first frame. The
+    // runtime governor below refines this from actual measurements.
+    function detectLowTier() {
+        const nav = navigator;
+        const mem = nav.deviceMemory || 8;            // GB, Chromium-only
+        const cores = nav.hardwareConcurrency || 8;
+        const smallScreen = Math.min(screen.width, screen.height) <= 500;
+        return mem <= 2 || cores <= 4 || smallScreen;
+    }
+
     function createSimulator() {
+        const lowTier = detectLowTier();
         const options = {
             containerSelector: "#display-shell",
-            canvasSelector: "#display"
+            canvasSelector: "#display",
+            maxDevicePixelRatio: lowTier ? 1 : 2
         };
+        if (lowTier) {
+            options.supersample = 1;
+            options.targetLogicalWidth = 240;
+            options.targetLogicalHeight = 144;
+        }
 
         // Prefer the GPU physical-emitter pipeline; fall back to the
         // Canvas 2D renderer when WebGL2 is unavailable. A failed GPU
@@ -112,6 +130,7 @@
             const frameH = stats.gridRows;
             loader.setFps(Number(ui.fpsInput.value) || 12);
             loader.startLoop(function (frame) {
+                if (document.hidden) return; // skip decode/upload while hidden
                 sim.loadFrameBuffer(frame.width, frame.height, frame.data);
             }, frameW, frameH);
             updateStatus("media");
@@ -121,6 +140,110 @@
     }
 
     const ENGINE_CONFIG = AMOLED.DEFAULT_ENGINE_CONFIG;
+
+    // ------------------------------------------------------------------
+    // Adaptive quality governor
+    //
+    // Watches real render cost against the requested FPS and walks a
+    // quality ladder down (when the device can't keep up) or back up
+    // (when there's headroom). Weak devices also start on a light tier.
+    // ------------------------------------------------------------------
+    let perfLabel = "ok";
+
+    function createAdaptiveQuality() {
+        const original = {
+            supersample: sim.config.supersample,
+            maxInternalPixels: sim.config.maxInternalPixels,
+            maxDevicePixelRatio: sim.config.maxDevicePixelRatio
+        };
+
+        // Cumulative downgrade ladder; step 0 = user's own settings.
+        const LADDER = [
+            null,
+            { supersample: 1 },
+            { maxInternalPixels: Math.min(original.maxInternalPixels, 12582912) },
+            { maxDevicePixelRatio: 1 },
+            { maxInternalPixels: 5242880, maxDevicePixelRatio: 1 }
+        ];
+
+        const state = { step: 0, strikes: 0, goodStreak: 0, cooldownUntil: 0 };
+
+        function applyStep(step) {
+            if (step === 0) {
+                sim.updateConfig({
+                    supersample: original.supersample,
+                    maxInternalPixels: original.maxInternalPixels,
+                    maxDevicePixelRatio: original.maxDevicePixelRatio
+                });
+            } else {
+                sim.updateConfig(LADDER[step]);
+            }
+            if (ui.supersampleSelect) {
+                ui.supersampleSelect.value = String(sim.config.supersample);
+            }
+        }
+
+        let frames = 0;
+        let lastTick = performance.now();
+        function tickFrame() {
+            frames++;
+            requestAnimationFrame(tickFrame);
+        }
+        requestAnimationFrame(tickFrame);
+
+        setInterval(function () {
+            if (document.hidden || currentMode !== "media") return;
+
+            const now = performance.now();
+            const elapsed = now - lastTick;
+            lastTick = now;
+
+            const targetFps = Number(ui.fpsInput.value) || 24;
+            const budgetMs = 1000 / targetFps;
+            const cost = typeof sim.getRenderCost === "function"
+                ? sim.getRenderCost()
+                : 0;
+            const measuredFps = frames * 1000 / Math.max(1, elapsed);
+            frames = 0;
+
+            // Ignore windows where nothing rendered (cost never accumulates).
+            if (!cost) return;
+
+            const overloaded =
+                cost > budgetMs * 0.85 ||
+                (measuredFps < targetFps * 0.7 && state.step > 0);
+
+            if (overloaded) {
+                state.strikes++;
+                state.goodStreak = 0;
+            } else {
+                state.strikes = 0;
+                state.goodStreak =
+                    state.step > 0 && cost < budgetMs * 0.4 &&
+                    measuredFps >= targetFps * 0.95
+                        ? state.goodStreak + 1
+                        : 0;
+            }
+
+            if (state.strikes >= 3 && now > state.cooldownUntil) {
+                if (state.step < LADDER.length - 1) {
+                    state.step++;
+                    applyStep(state.step);
+                    perfLabel = "auto-q" + state.step;
+                    updateStatus("perf-reduced");
+                }
+                state.strikes = 0;
+                state.cooldownUntil = now + 5000;
+            } else if (state.goodStreak >= 8 && now > state.cooldownUntil) {
+                state.step--;
+                applyStep(state.step);
+                state.goodStreak = 0;
+                state.cooldownUntil = now + 10000;
+                perfLabel = state.step === 0 ? "ok" : "auto-q" + state.step;
+                updateStatus("perf-restored");
+            }
+        }, 1500);
+    }
 
     function updateStatus(label) {
         if (!ui.status) return;
@@ -151,6 +274,7 @@
             "\nactive=" + activeLevel + "%  off=" + inactiveLevel + "%  bloom=" + bloomLevel + "%" +
             "\n" + engineLine +
             "  gamma=" + gamma + "  spill=" + spillPct + "%" +
+            "  perf=" + perfLabel +
             mediaLine;
     }
 
@@ -201,19 +325,9 @@
 
             // For animated content, use a coarser pitch so rendering stays fast.
             // The getFrame() method handles AR preservation with black padding.
-            const isAnim = loader.isAnimated();
-            if (isAnim) {
-                // Only force the coarse animated pitch when auto density
-                // would land finer than 8 — keep the user's coarser manual
-                // choice if they already picked one.
-                const currentPitch = Number(sim.config.pixelScale) || 0;
-                if (sim.config.autoPixelScale || currentPitch < 8) {
-                    sim.updateConfig({ pixelScale: 8, autoPixelScale: false });
-                }
-                refreshPitchUI();
-            } else {
-                setScaleMode(ui.scaleMode.value);
-            }
+            // The user's scale choice is respected as-is; the adaptive
+            // quality governor handles weak devices instead.
+            refreshPitchUI();
 
             const native = loader.getNativeSize();
             const stats = sim.getStats();
@@ -225,6 +339,7 @@
             loader.setFps(Number(ui.fpsInput.value) || 12);
 
             loader.startLoop(function (frame) {
+                if (document.hidden) return; // skip decode/upload while hidden
                 sim.loadFrameBuffer(frame.width, frame.height, frame.data);
             }, frameW, frameH);
 
@@ -251,19 +366,9 @@
             await loader.load(url);
             currentMode = "media";
 
-            const isAnim = loader.isAnimated();
-            if (isAnim) {
-                // Only force the coarse animated pitch when auto density
-                // would land finer than 8 — keep the user's coarser manual
-                // choice if they already picked one.
-                const currentPitch = Number(sim.config.pixelScale) || 0;
-                if (sim.config.autoPixelScale || currentPitch < 8) {
-                    sim.updateConfig({ pixelScale: 8, autoPixelScale: false });
-                }
-                refreshPitchUI();
-            } else {
-                setScaleMode(ui.scaleMode.value);
-            }
+            // The user's scale choice is respected as-is; the adaptive
+            // quality governor handles weak devices instead.
+            refreshPitchUI();
 
             const native = loader.getNativeSize();
             const stats = sim.getStats();
@@ -274,6 +379,7 @@
             loader.setFps(Number(ui.fpsInput.value) || 12);
 
             loader.startLoop(function (frame) {
+                if (document.hidden) return; // skip decode/upload while hidden
                 sim.loadFrameBuffer(frame.width, frame.height, frame.data);
             }, frameW, frameH);
 
@@ -488,6 +594,7 @@
         setScaleMode("auto");
         loadDefaultImage();
         bindUiEvents();
+        createAdaptiveQuality();
 
         // Open panel by default
         togglePanel();
@@ -501,6 +608,9 @@
         getStats: function () { return sim.getStats(); },
         resize: function () { sim.resize(); }
     };
+
+    // Debug/testing hook (not part of the public API).
+    global.__sim = sim;
 
     init();
 })(window);
