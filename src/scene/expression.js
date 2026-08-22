@@ -360,3 +360,115 @@ export function compileExpression(source) {
         }
     };
 }
+
+
+// ------------------------------------------------------------------
+// GLSL backend (PLAN.md §Phase 10). Same AST -> GLSL expression string.
+// Determinism caveat: GPU transcendental functions differ from JS in ULPs;
+// outputs may differ by ±1/255 after quantization. CPU path remains the
+// reference implementation and is used as fallback.
+//
+// noise() is replicated EXACTLY: the lattice hash uses 32-bit unsigned
+// multiply/xor available identically in GLSL ES 3.00.
+// ------------------------------------------------------------------
+
+const GLSL_FUNC_MAP = {
+    sin: "sin", cos: "cos", tan: "tan", asin: "asin", acos: "acos",
+    atan: "atan",
+    atan2: "atan",           // GLSL atan(y, x) overloads to 2-arg form
+    abs: "abs", sqrt: "sqrt",
+    pow: "amo_pow",
+    min: "min", max: "max",
+    floor: "floor", ceil: "ceil",
+    fract: "fract",
+    mod: "mod",              // GLSL mod(x,y) === x - y*floor(x/y), matches
+    clamp: "clamp",
+    mix: "mix", lerp: "mix",
+    smoothstep: "smoothstep",
+    step: "step",
+    exp: "exp", log: "log", sign: "sign",
+    distance: "distance", length: "length",
+    noise: "amo_noise"
+};
+
+export const GLSL_PRELUDE = `
+float amo_div(float a, float b) {
+    if (b == 0.0) return a > 0.0 ? 3.40282366e38 : (a < 0.0 ? -3.40282366e38 : 0.0);
+    return a / b;
+}
+float amo_pow(float b, float e) {
+    if (b < 0.0) {
+        float er = round(e);
+        if (abs(e - er) < 1e-6 && abs(er) <= 16.0) {
+            float out_ = 1.0;
+            for (int i = 0; i < 16; i++) {
+                if (float(i) >= abs(er)) break;
+                out_ *= b;
+            }
+            return er < 0.0 ? amo_div(1.0, out_) : out_;
+        }
+        return sqrt(b); // defined fallback, matches nothing — avoid in scenes
+    }
+    return pow(b, e);
+}
+float amo_hash(uint seed, int xi, int yi) {
+    uint h = (seed ^ (uint(xi) * 374761393u) ^ (uint(yi) * 668265263u));
+    h = (h ^ (h >> 13u)) * 1274126177u;
+    return float((h ^ (h >> 16u))) / 4294967296.0;
+}
+float amo_smooth(float u) { return u * u * (3.0 - 2.0 * u); }
+float amo_noise(uint seed, float x, float y) {
+    float flx = floor(x); float fly = floor(y);
+    int xi = int(flx); int yi = int(fly);
+    float sx = amo_smooth(x - flx);
+    float sy = amo_smooth(y - fly);
+    float v00 = amo_hash(seed, xi, yi);
+    float v10 = amo_hash(seed, xi + 1, yi);
+    float v01 = amo_hash(seed, xi, yi + 1);
+    float v11 = amo_hash(seed, xi + 1, yi + 1);
+    float a = mix(v00, v10, sx);
+    float b = mix(v01, v11, sx);
+    return mix(a, b, sy);
+}`;
+
+function toGLSLNode(node) {
+    switch (node.kind) {
+        case "num": return node.value.toFixed(8);
+        case "var":
+            switch (node.name) {
+                case "t": return "uT";
+                case "frame": return "float(int(uT * uFps))";
+                case "progress": return "uProgress";
+                case "seed": return "float(uSeed)";
+                default: return node.name; // x y u v width height
+            }
+        case "neg": return "(-" + toGLSLNode(node.arg) + ")";
+        case "cmp": return "(" + toGLSLNode(node.left) + node.op + toGLSLNode(node.right) + " ? 1.0 : 0.0)";
+        case "cond": return "(" + toGLSLNode(node.cond) + " != 0.0 ? " +
+            toGLSLNode(node.thenE) + " : " + toGLSLNode(node.elseE) + ")";
+        case "bin": {
+            if (node.op === "/") return "amo_div(" + toGLSLNode(node.left) + ", " + toGLSLNode(node.right) + ")";
+            return "(" + toGLSLNode(node.left) + " " + node.op + " " + toGLSLNode(node.right) + ")";
+        }
+        case "pow": return "amo_pow(" + toGLSLNode(node.base) + ", " + toGLSLNode(node.exp) + ")";
+        case "call": {
+            if (node.name === "noise") {
+                return "amo_noise(uint(uSeed), " + toGLSLNode(node.args[0]) + ", " + toGLSLNode(node.args[1]) + ")";
+            }
+            const glslName = GLSL_FUNC_MAP[node.name];
+            if (!glslName) throw new AmoExprError(`no GLSL mapping for "${node.name}"`);
+            return glslName + "(" + node.args.map(toGLSLNode).join(", ") + ")";
+        }
+        default:
+            throw new AmoExprError(`cannot convert node kind "${node.kind}" to GLSL`);
+    }
+}
+
+/**
+ * Compile an expression source to a GLSL expression string (r-value float).
+ * Throws AmoExprError for unsupported constructs.
+ */
+export function compileToGLSL(source) {
+    const ast = parseExpressionProgram(String(source));
+    return toGLSLNode(ast);
+}

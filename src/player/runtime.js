@@ -18,6 +18,7 @@ export function createRuntime({ renderer }) {
     let assets = {};
     let timeline = null;
     let mediaDecoder = null;     // decoder handle when scene.type is gif/video
+    let frameProvider = null;    // GPU fast path: (t) -> canvas source
     let workspace = null;        // reusable RGB buffer
     let logicalW = 0;
     let logicalH = 0;
@@ -80,6 +81,18 @@ export function createRuntime({ renderer }) {
     }
 
     function pushCurrentFrame() {
+        if (frameProvider) {
+            const canvas = frameProvider(sceneTime, logicalW, logicalH);
+            if (canvas) {
+                renderer.loadSourceTexture(logicalW, logicalH, canvas);
+            } else {
+                // Provider gave up (GPU init failure): fall back to CPU for
+                // this and subsequent frames.
+                workspace = rasterizeCurrent();
+                renderer.loadFrameBuffer(logicalW, logicalH, workspace);
+            }
+            return;
+        }
         if (isMediaScene()) {
             mediaDecoder.advance();
             const frame = mediaDecoder.getFrame(logicalW, logicalH);
@@ -190,7 +203,8 @@ export function createRuntime({ renderer }) {
          * display configuration through ONE updateConfig call (public API)
          * and renders the first frame immediately.
          */
-        setScene({ definition: def, assets: loadedAssets }) {
+        setScene({ definition: def, assets: loadedAssets, frameProvider: provider }) {
+            frameProvider = provider || null;
             definition = def;
             assets = loadedAssets || {};
 

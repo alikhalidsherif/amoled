@@ -38,6 +38,10 @@
 
         // Internal supersampling factor per axis (§13). 1-4.
         supersample: 1,
+        // Phase 10 GPU procedural fast path (expression scenes rendered in
+        // their own WebGL2 context). Opt-in until validated across devices;
+        // CPU rasterization remains the default reference path.
+        gpuRaster: false,
         maxInternalPixels: 33554432, // hard cap on emission-pass fragments
 
         // Large-scale bloom (§12) — floor is a fraction of peak luminance

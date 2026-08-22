@@ -10,6 +10,7 @@ import { createRuntime } from "./runtime.js";
 import { createCacheStore } from "./cache.js";
 import { createMediaDecoderFactory } from "./media-decoder.js";
 import { createQualityNegotiator } from "./quality.js";
+import { GpuExpressionRasterizer } from "./gpu-rasterizer.js";
 
 export default class AMOLEDPlayer {
     /**
@@ -93,8 +94,49 @@ export default class AMOLEDPlayer {
             // Static-frame reuse: same definition + size ⇒ skip rasterize.
             const runtime = this.runtime;
 
+            // Phase 10: GPU procedural fast path for expression scenes.
+            let frameProvider = null;
+            if (parsed.definition.scene.type === "expression" &&
+                !parsed.definition.isStatic &&
+                !this._forceCpuRaster &&
+                renderer.config.gpuRaster === true &&
+                GpuExpressionRasterizer.isSupported()) {
+
+                // Lazy provider: instance created AFTER the runtime negotiates
+                // logical size; recreated when size or scene changes.
+                const def = parsed.definition;
+                const fps = def.quality.fps || 30;
+                const duration = def.timeline ? def.timeline.duration : 0;
+                const loops = !def.timeline || def.timeline.loop !== false;
+
+                frameProvider = (t, w, h) => {
+                    try {
+                        if (!this._gpuRasterizer ||
+                            this._gpuSceneKey !== def ||
+                            this._gpuW !== w || this._gpuH !== h) {
+                            if (this._gpuRasterizer) this._gpuRasterizer.destroy();
+                            this._gpuRasterizer = new GpuExpressionRasterizer(w, h);
+                            if (!this._gpuRasterizer.setScene(def.scene)) {
+                                throw new Error("program compile failed");
+                            }
+                            this._gpuSceneKey = def;
+                            this._gpuW = w;
+                            this._gpuH = h;
+                        }
+                        return this._gpuRasterizer.render(t, fps,
+                            duration > 0 && loops ? (t % duration) / duration : 0);
+                    } catch (err) {
+                        console.warn("[amoled-player] GPU raster failed, falling back to CPU:", err.message);
+                        this._forceCpuRaster = true;
+                        if (this._gpuRasterizer) { this._gpuRasterizer.destroy(); this._gpuRasterizer = null; }
+                        return null; // runtime falls back to CPU for this frame
+                    }
+                };
+            }
+
             if (this._onSceneApplied) this._onSceneApplied(parsed.definition);
-            runtime.setScene({ definition: parsed.definition, assets });
+            runtime.setScene({ definition: parsed.definition, assets, frameProvider });
+            this._usingGpuRaster = Boolean(frameProvider);
 
             if (this.qualityNegotiator) {
                 this.qualityNegotiator.refreshRequest(parsed.definition.quality);

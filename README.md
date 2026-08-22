@@ -198,8 +198,19 @@ player.play();
 
 ```
 .amo file → parser → validator → assets → runtime clock → rasterizer
-          → loadFrameBuffer → PenTile emitter physics → canvas
+          → loadFrameBuffer / loadSourceTexture → PenTile emitter physics
+          → canvas
 ```
+
+### GPU procedural fast path (Phase 10, opt-in)
+
+Expression scenes can be rasterized by a dedicated WebGL2 context using a
+GLSL backend compiled from the same AST (`compileToGLSL`), then handed to the
+engine via `loadSourceTexture(w, h, canvas)` — no CPU per-pixel work.
+Off by default; enable with `gpuRaster: true`. The CPU path remains the
+deterministic reference and is selected automatically on any GPU failure.
+Determinism caveat: GPU transcendentals differ in ULPs (±1/255 after
+quantization); composite-layer GPU compositing is future work.
 
 ### Simulation pipeline
 

@@ -504,6 +504,27 @@
             this.requestRender();
         }
 
+        /**
+         * Phase 10: upload a ready-made frame source (canvas/ImageBitmap)
+         * without CPU readback. Companion to loadFrameBuffer — never a
+         * replacement (Canvas 2D fallback depends on the original).
+         */
+        loadSourceTexture(width, height, source) {
+            if (this._contextLost) {
+                this.frameBuffer = { width: width | 0, height: height | 0 };
+                return;
+            }
+            const gl = this.gl;
+            const w = Math.max(1, width | 0);
+            const h = Math.max(1, height | 0);
+            gl.bindTexture(gl.TEXTURE_2D, this.sourceTexture);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+            this.frameBuffer = { width: w, height: h };
+            this.requestRender();
+        }
+
         updateConfig(partialConfig) {
             if (!partialConfig || typeof partialConfig !== "object") {
                 return;
