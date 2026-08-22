@@ -1,0 +1,5 @@
+{
+  "amo": 1,
+  "meta": { "name": "deep field", "author": "ali" },
+  "scene": { "type": "color", "color": "#06120a" }
+}

@@ -2,6 +2,11 @@
 // against DiamondPentileGeometry for identical viewport parameters.
 "use strict";
 
+// The repo is "type": "module" (see package.json); the engine files are
+// classic IIFEs meant for <script> tags, so pull them in via createRequire
+// with a window stub.
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 globalThis.window = globalThis;
 require("../src/engine/util.js");
 require("../src/engine/diamond-pentile-geometry.js");

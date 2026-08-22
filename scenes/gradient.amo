@@ -1,0 +1,16 @@
+{
+  "amo": 1,
+  "meta": { "name": "forest dawn", "author": "ali" },
+  "display": {
+    "gamma": 1.7,
+    "spill": 0.40,
+    "bloom": { "intensity": 0.25 }
+  },
+  "quality": { "fps": 30 },
+  "scene": {
+    "type": "gradient",
+    "from": "#001a08",
+    "to": "#123f20",
+    "direction": "diagonal"
+  }
+}

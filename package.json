@@ -1,0 +1,10 @@
+{
+  "name": "amoled-client",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Diamond PenTile AMOLED subpixel simulator with .amo scene system",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/lattice-parity.js && node tests/amo-parser.test.js"
+  }
+}
