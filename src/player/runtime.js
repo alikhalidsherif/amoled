@@ -28,6 +28,10 @@ export function createRuntime({ renderer }) {
     let accumulated = 0;
     let sceneTime = 0;
 
+    // Quality-negotiation override (Phase 8): wins over scene quality
+    // requests. Keys: logicalWidth, logicalHeight, fps (all optional).
+    let qualityOverride = null;
+
     const listeners = { frame: [], error: [] };
 
     function emit(kind, payload) {
@@ -38,7 +42,12 @@ export function createRuntime({ renderer }) {
 
     function negotiateLogicalSize(def) {
         // Aspect-correct logical resolution: match the renderer canvas so
-        // content never stretches (PLAN.md Rule 6).
+        // content never stretches (PLAN.md Rule 6). Negotiated overrides
+        // (Phase 8) win over scene requests.
+        const o = qualityOverride;
+        if (o && o.logicalWidth && o.logicalHeight) {
+            return { width: o.logicalWidth, height: o.logicalHeight };
+        }
         const rect = renderer.canvas
             ? renderer.canvas.getBoundingClientRect()
             : null;
@@ -98,7 +107,9 @@ export function createRuntime({ renderer }) {
         const dt = Math.min(250, now - lastFrameTime);
         lastFrameTime = now;
 
-        const targetFps = definition.isStatic ? 60 : (definition.quality.fps || 30);
+        const targetFps = definition.isStatic
+            ? 60
+            : ((qualityOverride && qualityOverride.fps) || definition.quality.fps || 30);
         accumulated += dt;
         const frameInterval = 1000 / targetFps;
 
@@ -225,7 +236,23 @@ export function createRuntime({ renderer }) {
             renderOnceIfIdle();
         },
 
+        /** Quality-negotiation override; re-renders at the new size. */
+        setQualityOverride(o) {
+            const prevW = logicalW, prevH = logicalH;
+            qualityOverride = o ? Object.assign({}, o) : null;
+            const size = negotiateLogicalSize(definition || { quality: {} });
+            logicalW = size.width;
+            logicalH = size.height;
+            if (logicalW !== prevW || logicalH !== prevH) {
+                workspace = null; // force reallocation at new size
+                renderOnceIfIdle();
+            } else {
+                renderOnceIfIdle();
+            }
+        },
+
         get isRunning() { return running; },
+        get definitionRef() { return definition; },
         get isStatic() { return Boolean(definition && definition.isStatic); },
         get logicalSize() { return { width: logicalW, height: logicalH }; },
         get time() { return sceneTime; },
@@ -247,7 +274,7 @@ export function createRuntime({ renderer }) {
     };
 
     function renderOnceIfIdle() {
-        if (running) return; // next tick re-rasterizes anyway
+        if (!definition || running) return; // next tick re-rasterizes anyway
         if (definition.isStatic || !isMediaScene()) {
             if (definition.isStatic) {
                 pushCurrentFrame();
