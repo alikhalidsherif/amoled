@@ -126,7 +126,7 @@ export function createRuntime({ renderer }) {
         if (running || !definition) return;
         if (definition.isStatic) {
             // Rule 4: static scenes render exactly once. No loop.
-            deliverCurrentFrame();
+            pushCurrentFrame();
             return;
         }
         running = true;

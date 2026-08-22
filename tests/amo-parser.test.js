@@ -190,7 +190,10 @@ ok("static matrix: color/image/pattern static; gif/video/expression not", () => 
     const cases = [
         [{ type: "color", color: "#123456" }, true],
         [{ type: "pattern", pattern: "dots" }, true],
-        [{ type: "expression", r: "0", g: "0", b: "0" }, false]
+        // Phase 5 AST walk: expressions WITHOUT time references are static
+        [{ type: "expression", r: "0.5", g: "x*0.5", b: "y" }, true],
+        [{ type: "expression", r: "sin(t)", g: "0", b: "0" }, false],
+        [{ type: "expression", r: "0", g: "0", b: "y+frame" }, false]
     ];
     for (const [scene, expected] of cases) {
         const { definition } = parseAmo({ amo: 1, scene });

@@ -5,6 +5,7 @@
 // classes, and produces the frozen normalized SceneDefinition.
 
 import { DISPLAY_DEFAULTS, QUALITY_DEFAULTS, ANIMATABLE_PREFIXES, STRUCTURAL_PREFIXES } from "./defaults.js";
+import { expressionReferencesTime } from "./expression.js";
 
 export class AmoError extends Error {
     constructor(path, message) {
@@ -334,7 +335,21 @@ export function validateAndNormalize(raw, baseUrl) {
     let isStatic =
         STATIC_TYPES.has(scene.type) &&
         (timeline === null || timeline.keyframes.length === 0);
-    if (scene.type === "expression") isStatic = false; // AST walk arrives Phase 5
+
+    // Expression scenes are static iff NO channel references time (§Phase 5).
+    let expressionAnimated = false;
+    if (scene.type === "expression") {
+        expressionAnimated =
+            expressionReferencesTime(scene.r) ||
+            expressionReferencesTime(scene.g) ||
+            expressionReferencesTime(scene.b);
+        isStatic = !expressionAnimated && (timeline === null || timeline.keyframes.length === 0);
+
+        // Budget guardrail §3.5: warn above the guaranteed-smooth budget.
+        if ((quality.logicalWidth || 0) > 480 || (quality.logicalHeight || 0) > 270) {
+            warnings.push("quality.logicalResolution: expression scene above the 480x270 smooth budget; may need the Phase 10 GPU path");
+        }
+    }
     if (scene.type === "composite") isStatic = false;   // conservative until Phase 6
 
     return {

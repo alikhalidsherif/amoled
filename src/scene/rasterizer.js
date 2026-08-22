@@ -1,6 +1,25 @@
-// Scene rasterizer (PLAN.md §Phase 3): SceneDefinition + t → RGB buffer.
+// Scene rasterizer (PLAN.md §Phase 3/5): SceneDefinition + t → RGB buffer.
 // CPU-only in v1. Steady-state per-frame paths allocate nothing when the
 // caller supplies a reusable output buffer.
+
+import { compileExpression } from "./expression.js";
+
+// Compiled expression programs, cached per scene object (WeakMap: frozen
+// scene objects are valid keys; GC-friendly).
+const programCache = new WeakMap();
+
+function getProgram(scene) {
+    let prog = programCache.get(scene);
+    if (!prog) {
+        prog = {
+            r: compileExpression(scene.r),
+            g: compileExpression(scene.g),
+            b: compileExpression(scene.b)
+        };
+        programCache.set(scene, prog);
+    }
+    return prog;
+}
 
 // Shared offscreen canvas for image fitting, cached per size.
 let fitCanvas = null;
@@ -82,6 +101,42 @@ export function computeFit(srcW, srcH, dstW, dstH, fit) {
     return { dx: Math.round((dstW - dw) / 2), dy: Math.round((dstH - dh) / 2), dw: dw, dh: dh };
 }
 
+function rasterizeExpression(definition, scene, w, h, t, out) {
+    const prog = getProgram(scene);
+    const E = {
+        t,
+        frame: Math.floor(t * Math.max(1, definition.quality.fps || 30)),
+        width: w,
+        height: h,
+        u: 0, v: 0,
+        seed: scene.seed | 0,
+        progress: 0
+    };
+    if (definition.timeline && definition.timeline.duration > 0) {
+        E.progress = Math.min(1, t / definition.timeline.duration);
+    }
+
+    const { eval: evalR } = prog.r;
+    const { eval: evalG } = prog.g;
+    const { eval: evalB } = prog.b;
+
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+        E.y = y;
+        E.v = h > 1 ? y / (h - 1) : 0;
+        for (let x = 0; x < w; x++) {
+            E.x = x;
+            E.u = w > 1 ? x / (w - 1) : 0;
+            // Expressions yield normalized floats [0,1]; scale to bytes.
+            // Uint8ClampedArray clamps overflow and rounds NaN -> 0.
+            out[i++] = evalR(x, y, E) * 255;
+            out[i++] = evalG(x, y, E) * 255;
+            out[i++] = evalB(x, y, E) * 255;
+        }
+    }
+    return out;
+}
+
 function rasterizeImage(scene, w, h, assets, out) {
     const bitmap = assets[scene.asset];
     if (!bitmap) throw new Error(`rasterize: asset "${scene.asset}" not loaded`);
@@ -129,6 +184,8 @@ export function rasterize(definition, _t, size, assets, out) {
         }
         case "gradient":
             return rasterizeGradient(scene, w, h, out);
+        case "expression":
+            return rasterizeExpression(definition, scene, w, h, _t, out);
         case "image":
             return rasterizeImage(scene, w, h, assets, out);
         default:

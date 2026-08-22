@@ -1,0 +1,14 @@
+{
+  "amo": 1,
+  "meta": { "name": "plasma", "author": "ali" },
+  "display": { "gamma": 1.4, "spill": 0.40, "bloom": { "intensity": 0.2 } },
+  "quality": { "fps": 30 },
+  "timeline": { "duration": 8, "loop": true },
+  "scene": {
+    "type": "expression",
+    "seed": 7,
+    "r": "0.5 + 0.5*sin(x*8 + t*2) * sin(y*6 - t*1.5)",
+    "g": "0.5 + 0.45*sin(sqrt((x-40)^2+(y-30)^2)*0.3 - t*3)",
+    "b": "0.35 + 0.35*noise(x*0.15 + t*0.5, y*0.15)"
+  }
+}
