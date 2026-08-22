@@ -1,0 +1,8 @@
+{
+  "amo": 1,
+  "meta": { "name": "rain loop", "author": "ali" },
+  "display": { "spill": 0.40, "bloom": { "intensity": 0.15 } },
+  "quality": { "fps": 24 },
+  "assets": { "rain": "../assets/test-portrait.gif" },
+  "scene": { "type": "gif", "asset": "rain", "fit": "cover" }
+}

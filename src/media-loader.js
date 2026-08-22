@@ -319,6 +319,16 @@
             return Boolean(this._playing);
         }
 
+        /** Advance GIF frame timing manually (runtime-clock driven playback). */
+        advance() {
+            if (this._type === "gif") this._advanceGifFrame();
+        }
+
+        /** Raw media element for video playback control (may be null). */
+        getElement() {
+            return this._element;
+        }
+
         destroy() {
             this._gifLoadGen = (this._gifLoadGen || 0) + 1; // abort background decode
             this.stop();

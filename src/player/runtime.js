@@ -3,12 +3,22 @@
 // Owns THE single requestAnimationFrame loop when a scene is animated, and
 // NO loop at all when it is static (Rule 4). Animated scenes are gated to
 // quality.fps via accumulated time inside rAF.
+//
+// Phase 4 additions: timeline keyframes applied per tick as uniform-only
+// updateConfig patches; GIF/video scene types driven through the runtime
+// clock (decoder handles from the player); tab-visibility pauses the clock;
+// window resizes re-negotiate logical size and re-render [A2].
+
+import { rasterize } from "../scene/rasterizer.js";
+import { createTimeline } from "./timeline.js";
 
 export function createRuntime({ renderer }) {
     const engineRenderer = renderer;
     let definition = null;
     let assets = {};
-    let workspace = null;       // reusable RGB buffer
+    let timeline = null;
+    let mediaDecoder = null;     // decoder handle when scene.type is gif/video
+    let workspace = null;        // reusable RGB buffer
     let logicalW = 0;
     let logicalH = 0;
 
@@ -56,15 +66,29 @@ export function createRuntime({ renderer }) {
         };
     }
 
-    function renderOnce() {
-        if (!definition) return;
+    function isMediaScene() {
+        return Boolean(mediaDecoder);
+    }
+
+    function pushCurrentFrame() {
+        if (isMediaScene()) {
+            mediaDecoder.advance();
+            const frame = mediaDecoder.getFrame(logicalW, logicalH);
+            if (frame && frame.data && frame.width === logicalW && frame.height === logicalH) {
+                renderer.loadFrameBuffer(frame.width, frame.height, frame.data);
+            }
+            return;
+        }
         workspace = rasterizeCurrent();
         renderer.loadFrameBuffer(logicalW, logicalH, workspace);
     }
 
+    function mediaAdvance() {
+        if (isMediaScene()) mediaDecoder.advance();
+    }
+
     function rasterizeCurrent() {
-        // Imported lazily to keep this module's dependency list explicit.
-        return runtimeRasterize(definition, sceneTime, { width: logicalW, height: logicalH }, assets, workspace);
+        return rasterize(definition, sceneTime, { width: logicalW, height: logicalH }, assets, workspace);
     }
 
     function tick(now) {
@@ -79,13 +103,18 @@ export function createRuntime({ renderer }) {
         const frameInterval = 1000 / targetFps;
 
         if (!definition.isStatic && accumulated >= frameInterval) {
-            // Advance scene time; loop wrap handled by timeline in Phase 4.
             sceneTime += accumulated / 1000;
             accumulated %= frameInterval;
 
             try {
-                workspace = rasterizeCurrent();
-                renderer.loadFrameBuffer(logicalW, logicalH, workspace);
+                // Keyframed display properties: uniform-only patch, cheap.
+                const patch = timeline.sample(sceneTime);
+                if (Object.keys(patch).length > 0) {
+                    engineRenderer.updateConfig(patch);
+                }
+
+                mediaAdvance();
+                pushCurrentFrame();
                 emit("frame", { t: sceneTime });
             } catch (err) {
                 emit("error", err);
@@ -97,14 +126,52 @@ export function createRuntime({ renderer }) {
         if (running || !definition) return;
         if (definition.isStatic) {
             // Rule 4: static scenes render exactly once. No loop.
-            renderOnce();
+            deliverCurrentFrame();
             return;
         }
         running = true;
         lastFrameTime = performance.now();
         accumulated = 0;
         rafHandle = requestAnimationFrame(tick);
+        if (mediaDecoder) mediaDecoder.play();
     }
+
+    function applyDisplay(display) {
+        const patch = displayToEngineConfig(display);
+        // Drop undefined keys (e.g. pixelScale "auto") — updateConfig treats
+        // absent keys as untouched, preserving the current value.
+        const clean = {};
+        for (const k of Object.keys(patch)) {
+            if (patch[k] !== undefined) clean[k] = patch[k];
+        }
+        engineRenderer.updateConfig(clean);
+    }
+
+    // ---- Tab visibility + resize handling [A2] ------------------------
+    function handleVisibility() {
+        if (!definition || definition.isStatic) return;
+        if (document.hidden) {
+            runtime.pause();
+            if (mediaDecoder) mediaDecoder.pause();
+        } else if (definition) {
+            startLoop();
+            if (mediaDecoder) mediaDecoder.play();
+        }
+    }
+
+    function handleResize() {
+        if (!definition) return;
+        const size = negotiateLogicalSize(definition);
+        if (size.width !== logicalW || size.height !== logicalH) {
+            logicalW = size.width;
+            logicalH = size.height;
+            workspace = null;      // force reallocation at new size
+            runtime.invalidate();
+        }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("resize", handleResize);
 
     const runtime = {
         /**
@@ -116,15 +183,26 @@ export function createRuntime({ renderer }) {
             definition = def;
             assets = loadedAssets || {};
 
-            applyDisplayConfig(engineRenderer, def.display);
+            timeline = createTimeline(def.timeline);
+            mediaDecoder = null;
+            for (const key of Object.keys(assets)) {
+                const a = assets[key];
+                if (a && (a.type === "gif" || a.type === "video")) {
+                    mediaDecoder = a;
+                    break;
+                }
+            }
+
+            applyDisplay(def.display);
 
             const size = negotiateLogicalSize(def);
             logicalW = size.width;
             logicalH = size.height;
 
-            // Stop any previous loop before re-rendering.
             runtime.stop();
-            renderOnce();
+            pushCurrentFrame();
+
+            if (mediaDecoder && mediaDecoder.type === "video") mediaDecoder.play();
         },
 
         start: startLoop,
@@ -133,6 +211,7 @@ export function createRuntime({ renderer }) {
             running = false;
             if (rafHandle) cancelAnimationFrame(rafHandle);
             rafHandle = 0;
+            if (mediaDecoder) mediaDecoder.pause();
         },
 
         stop() {
@@ -143,35 +222,46 @@ export function createRuntime({ renderer }) {
 
         /** Re-rasterize (quality change / invalidation). */
         invalidate() {
-            if (running) {
-                // next tick re-rasterizes anyway
-            } else {
-                renderOnce();
-            }
+            renderOnceIfIdle();
         },
 
         get isRunning() { return running; },
         get isStatic() { return Boolean(definition && definition.isStatic); },
         get logicalSize() { return { width: logicalW, height: logicalH }; },
         get time() { return sceneTime; },
+        get timeline() { return timeline; },
 
         on: function (kind, fn) {
             if (listeners[kind]) listeners[kind].push(fn);
         },
 
         destroy() {
-            runtime.stop();
+            document.removeEventListener("visibilitychange", handleVisibility);
+            window.removeEventListener("resize", handleResize);
+            runtime.pause();
+            if (mediaDecoder) mediaDecoder.destroy();
             definition = null;
             assets = null;
             workspace = null;
         }
     };
 
+    function renderOnceIfIdle() {
+        if (running) return; // next tick re-rasterizes anyway
+        if (definition.isStatic || !isMediaScene()) {
+            if (definition.isStatic) {
+                pushCurrentFrame();
+                return;
+            }
+        }
+        pushCurrentFrame();
+    }
+
     return runtime;
 }
 
 // ------------------------------------------------------------------
-// display -> engine config mapping (documented table, PLAN.md §Phase 3/§5.2)
+// display -> engine config mapping (documented table, PLAN.md §5.2)
 // ------------------------------------------------------------------
 
 /**
@@ -202,17 +292,3 @@ export function displayToEngineConfig(display) {
         diamondSizeRatio: display.pentile.diamondSizeRatio
     };
 }
-
-function applyDisplayConfig(renderer, display) {
-    const patch = displayToEngineConfig(display);
-    // Drop undefined keys (e.g. pixelScale "auto") — updateConfig treats
-    // absent keys as untouched, preserving the current value.
-    const clean = {};
-    for (const k of Object.keys(patch)) {
-        if (patch[k] !== undefined) clean[k] = patch[k];
-    }
-    renderer.updateConfig(clean);
-}
-
-// Rasterizer import indirection (avoids circular import concerns later).
-import { rasterize as runtimeRasterize } from "../scene/rasterizer.js";

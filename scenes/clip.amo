@@ -1,0 +1,7 @@
+{
+  "amo": 1,
+  "meta": { "name": "clip loop", "author": "ali" },
+  "quality": { "logicalResolution": { "width": 320, "height": 180 }, "fps": 30 },
+  "assets": { "clip": "../assets/clip.webm" },
+  "scene": { "type": "video", "asset": "clip", "fit": "cover", "muted": true }
+}

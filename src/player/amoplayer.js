@@ -8,6 +8,7 @@ import { parseAmo, AmoError } from "../scene/parser.js";
 import { loadAssets } from "../scene/assets.js";
 import { createRuntime } from "./runtime.js";
 import { createCacheStore } from "./cache.js";
+import { createMediaDecoderFactory } from "./media-decoder.js";
 
 export default class AMOLEDPlayer {
     /**
@@ -20,6 +21,7 @@ export default class AMOLEDPlayer {
         this.renderer = renderer;
         this._events = events || {};
         this._caches = createCacheStore();
+        this._decoderFactory = createMediaDecoderFactory();
         this.runtime = createRuntime({ renderer });
         this._currentUrl = null;
     }
@@ -49,7 +51,7 @@ export default class AMOLEDPlayer {
                 this._currentUrl = null;
             }
 
-            const assets = await loadAssets(parsed.definition, this._caches.assetCache);
+            const assets = await loadAssets(parsed.definition, this._caches.assetCache, this._decoderFactory);
 
             // Static-frame reuse: same definition + size ⇒ skip rasterize.
             const runtime = this.runtime;

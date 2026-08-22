@@ -1,13 +1,15 @@
-// Asset resolution/loading/caching (PLAN.md §Phase 3).
-// v1: images only (ImageBitmap). GIF/video scene types are rejected with a
-// clear message until Phase 4 wires the runtime clock to their decoders.
+// Asset resolution/loading/caching (PLAN.md §Phase 3/4).
+//
+// `decoderFactory` is injected by the player (DOM-aware side): it knows how
+// to create GIF/video decoder handles. This module stays DOM-free.
 
 /**
  * @param {object} definition - normalized SceneDefinition (assets resolved).
  * @param {object} [cache] - optional Map shared across loads (URL -> decoded).
+ * @param {object} [decoderFactory] - { gif(url), video(url) } → decoder handles.
  * @returns {Promise<object>} name -> decoded asset.
  */
-export async function loadAssets(definition, cache) {
+export async function loadAssets(definition, cache, decoderFactory) {
     const store = cache || new Map();
     const out = {};
 
@@ -22,21 +24,24 @@ export async function loadAssets(definition, cache) {
         const sceneUses = collectAssetUses(definition.scene, name);
         if (sceneUses.length === 0) continue; // declared but unused
 
+        let decoded;
         if (/\.gif($|\?)/i.test(url)) {
-            throw new Error(`asset "${name}": GIF scenes arrive in Phase 4`);
-        }
-        if (/(\.mp4|\.webm|\.mov)($|\?)/i.test(url)) {
-            throw new Error(`asset "${name}": video scenes arrive in Phase 4`);
+            if (!decoderFactory) throw new Error(`asset "${name}": GIF needs a decoderFactory`);
+            decoded = await decoderFactory.gif(url);
+        } else if (/(\.mp4|\.webm|\.mov)($|\?)/i.test(url)) {
+            if (!decoderFactory) throw new Error(`asset "${name}": video needs a decoderFactory`);
+            decoded = await decoderFactory.video(url);
+        } else {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`asset "${name}": failed to load ${url} (${response.status})`);
+            }
+            const blob = await response.blob();
+            decoded = await createImageBitmap(blob);
         }
 
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`asset "${name}": failed to load ${url} (${response.status})`);
-        }
-        const blob = await response.blob();
-        const bitmap = await createImageBitmap(blob);
-        store.set(url, bitmap);
-        out[name] = bitmap;
+        store.set(url, decoded);
+        out[name] = decoded;
     }
 
     return out;
