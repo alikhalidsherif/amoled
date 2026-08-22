@@ -138,6 +138,17 @@
             this._bloomCanvas.width = bw;
             this._bloomCanvas.height = bh;
 
+            // Notify when the logical grid changed so consumers (e.g. the
+            // media loop) can re-target instead of feeding stale sizes.
+            var m = this.geometry.metrics;
+            var gridKey = m.visibleCols + "x" + m.visibleRows;
+            if (this._lastGridKey !== undefined && gridKey !== this._lastGridKey) {
+                if (typeof this.onGridChange === "function") {
+                    this.onGridChange(m.visibleCols, m.visibleRows);
+                }
+            }
+            this._lastGridKey = gridKey;
+
             this.requestRender();
         }
 

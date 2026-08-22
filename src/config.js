@@ -6,8 +6,8 @@
     AMOLED.DEFAULT_ENGINE_CONFIG = Object.freeze({
         pixelScale: null,
         autoPixelScale: true,
-        minPixelScale: 3.5,
-        maxPixelScale: 11,
+        minPixelScale: 1,        // allows very fine manual pitches
+        maxPixelScale: 24,
         targetLogicalWidth: 220,
         targetLogicalHeight: 132,
 

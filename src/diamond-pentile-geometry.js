@@ -36,18 +36,18 @@
                 ? Number(pixelScaleOverride)
                 : Number(this.config.pixelScale);
 
-            const pitchX = Math.max(2, requestedScale || 2);
-            const pitchY = Math.max(2, pitchX * (Number(this.config.rowPitchFactor) || 1));
+            const pitchX = Math.max(0.5, requestedScale || 2);
+            const pitchY = Math.max(0.5, pitchX * (Number(this.config.rowPitchFactor) || 1));
 
             const baseRadius = Math.min(pitchX, pitchY) * 0.5;
             const trim = baseRadius * clamp01(this.config.blackMatrixRatio);
 
             const greenRadius = Math.max(
-                0.5,
+                0.05,
                 baseRadius * (Number(this.config.greenSizeRatio) || 0.8) - trim
             );
             const diamondRadius = Math.max(
-                0.5,
+                0.05,
                 baseRadius * (Number(this.config.diamondSizeRatio) || 0.9) - trim
             );
 

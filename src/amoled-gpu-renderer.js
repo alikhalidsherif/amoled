@@ -480,8 +480,13 @@
 
             // Effective supersampling, capped by fragment budget (§13).
             const requested = clampInt(this.config.supersample, 1, 4, 2);
+            // Tiny pitches need internal samples finer than screen pixels,
+            // otherwise subpixels alias away entirely.
+            const minForPitch = Math.ceil(
+                2 / Math.max(0.25, this.currentPixelScale * dpr)
+            );
+            let ss = Math.max(requested, Math.min(4, minForPitch));
             const budget = Math.max(1, Number(this.config.maxInternalPixels) || 33554432);
-            let ss = requested;
             while (ss > 1 && deviceWidth * deviceHeight * ss * ss > budget) {
                 ss -= 1;
             }
@@ -495,6 +500,17 @@
             this.sceneTarget = this._createTarget(this.internalWidth, this.internalHeight);
             this.bloomATarget = this._createTarget(deviceWidth >> 2, deviceHeight >> 2);
             this.bloomBTarget = this._createTarget(deviceWidth >> 2, deviceHeight >> 2);
+
+            // Notify when the logical grid changed so consumers (e.g. the
+            // media loop) can re-target instead of feeding stale sizes.
+            const metrics = this.geometry.metrics;
+            const gridKey = metrics.visibleCols + "x" + metrics.visibleRows;
+            if (this._lastGridKey !== undefined && gridKey !== this._lastGridKey) {
+                if (typeof this.onGridChange === "function") {
+                    this.onGridChange(metrics.visibleCols, metrics.visibleRows);
+                }
+            }
+            this._lastGridKey = gridKey;
 
             this.requestRender();
         }
@@ -549,18 +565,16 @@
             const m = this.geometry.metrics;
             const cfg = this.config;
 
-            const dpr = this.devicePixelRatio;
-            const pitch = [
-                m.pitchX * dpr,
-                m.pitchY * dpr
-            ];
-            const radii = [
-                m.greenRadius * dpr,
-                m.diamondRadius * dpr
-            ];
+            // Lattice lives in CSS px; the emission pass renders at
+            // devicePx * supersample, so every lattice-space uniform is
+            // scaled by the full factor. Getting this wrong compresses the
+            // whole virtual display by 1/ss into the top-left corner.
+            const scale = this.devicePixelRatio * this.supersampleUsed;
+            const pitch = [m.pitchX * scale, m.pitchY * scale];
+            const radii = [m.greenRadius * scale, m.diamondRadius * scale];
             const origin = [
-                (this.geometry.latticeOriginX || 0) * dpr,
-                (this.geometry.latticeOriginY || 0) * dpr
+                (this.geometry.latticeOriginX || 0) * scale,
+                (this.geometry.latticeOriginY || 0) * scale
             ];
 
             const inactiveLinear = srgbChannelToLinear(clamp01(cfg.inactiveLevel));

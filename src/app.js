@@ -19,12 +19,17 @@
         };
 
         // Prefer the GPU physical-emitter pipeline; fall back to the
-        // Canvas 2D renderer when WebGL2 is unavailable.
+        // Canvas 2D renderer when WebGL2 is unavailable. A failed GPU
+        // attempt leaves a webgl2 context bound to the canvas, so swap in
+        // a clean clone before handing it to the 2D renderer.
         if (GPUPentileSimulator && GPUPentileSimulator.isSupported()) {
             try {
                 return new GPUPentileSimulator(options);
             } catch (err) {
                 console.warn("[amoled] GPU simulator unavailable, using Canvas 2D:", err);
+                const old = document.getElementById("display");
+                const fresh = old.cloneNode(false);
+                old.parentNode.replaceChild(fresh, old);
             }
         }
         return new AMOLEDRenderer(options);
@@ -33,6 +38,17 @@
     const sim = createSimulator();
 
     const loader = new ClientMediaLoader();
+
+    // Keep the media loop's target size in sync with the live grid. Without
+    // this, any pitch/supersample/window change leaves the loop feeding
+    // frames at a stale size and content renders squeezed into a corner.
+    function syncMediaTarget() {
+        if (currentMode !== "media") return;
+        const stats = sim.getStats();
+        loader.resizeTarget(stats.gridCols, stats.gridRows);
+    }
+
+    sim.onGridChange = syncMediaTarget;
 
     const ui = {
         panelToggle: document.getElementById("panel-toggle"),
@@ -52,6 +68,12 @@
         gammaSliderVal: document.getElementById("gamma-slider-val"),
         spillSlider: document.getElementById("spill-slider"),
         spillSliderVal: document.getElementById("spill-slider-val"),
+        spreadR: document.getElementById("spread-r"),
+        spreadRVal: document.getElementById("spread-r-val"),
+        spreadG: document.getElementById("spread-g"),
+        spreadGVal: document.getElementById("spread-g-val"),
+        spreadB: document.getElementById("spread-b"),
+        spreadBVal: document.getElementById("spread-b-val"),
         bloomThreshold: document.getElementById("bloom-threshold"),
         bloomThresholdVal: document.getElementById("bloom-threshold-val"),
         bloomRadius: document.getElementById("bloom-radius"),
@@ -73,6 +95,7 @@
     let currentMode = "test-pattern";
 
     function testRender() {
+        currentMode = "test-pattern";
         const w = ENGINE_CONFIG.defaultFrameWidth;
         const h = ENGINE_CONFIG.defaultFrameHeight;
         const data = createTestPattern(w, h);
@@ -87,7 +110,7 @@
             const stats = sim.getStats();
             const frameW = stats.gridCols;
             const frameH = stats.gridRows;
-            loader.setFps(12);
+            loader.setFps(Number(ui.fpsInput.value) || 12);
             loader.startLoop(function (frame) {
                 sim.loadFrameBuffer(frame.width, frame.height, frame.data);
             }, frameW, frameH);
@@ -310,6 +333,18 @@
             updateStatus("optical-spill");
         });
 
+        function bindSpread(input, val, key) {
+            input.addEventListener("input", function () {
+                const sigma = Number(input.value) / 100;
+                sim.updateConfig({ [key]: sigma });
+                val.textContent = sigma.toFixed(2);
+                updateStatus(key);
+            });
+        }
+        bindSpread(ui.spreadR, ui.spreadRVal, "redSigma");
+        bindSpread(ui.spreadG, ui.spreadGVal, "greenSigma");
+        bindSpread(ui.spreadB, ui.spreadBVal, "blueSigma");
+
         ui.bloomThreshold.addEventListener("input", function () {
             const pct = Number(ui.bloomThreshold.value);
             sim.updateConfig({ bloomThreshold: pct / 100 });
@@ -370,10 +405,7 @@
         });
 
         global.addEventListener("resize", function () {
-            if (currentMode === "media" && loader._element) {
-                const stats = sim.getStats();
-                loader.resizeTarget(stats.gridCols, stats.gridRows);
-            }
+            syncMediaTarget();
             updateStatus("resize");
         });
 
@@ -403,6 +435,15 @@
         ui.gammaSliderVal.textContent = (sim.config.emitterGamma || 1.8).toFixed(1);
         ui.spillSlider.value = String(Math.round((sim.config.opticalSpill || 0.05) * 100));
         ui.spillSliderVal.textContent = Math.round((sim.config.opticalSpill || 0.05) * 100) + "%";
+        for (const [input, val, key] of [
+            [ui.spreadR, ui.spreadRVal, "redSigma"],
+            [ui.spreadG, ui.spreadGVal, "greenSigma"],
+            [ui.spreadB, ui.spreadBVal, "blueSigma"]
+        ]) {
+            const sigma = sim.config[key];
+            input.value = String(Math.round(sigma * 100));
+            val.textContent = sigma.toFixed(2);
+        }
         ui.bloomThreshold.value = String(Math.round((sim.config.bloomThreshold || 0.7) * 100));
         ui.bloomThresholdVal.textContent = Math.round((sim.config.bloomThreshold || 0.7) * 100) + "%";
         ui.bloomRadius.value = String(sim.config.bloomRadius || 12);

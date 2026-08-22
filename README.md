@@ -105,8 +105,8 @@ WebGL2 is available.
 AMOLED.DEFAULT_ENGINE_CONFIG = {
     pixelScale: null,        // Manual pitch override (null = auto)
     autoPixelScale: true,    // Auto-density per screen size
-    minPixelScale: 3.5,      // Minimum subpixel pitch
-    maxPixelScale: 11,       // Maximum subpixel pitch
+    minPixelScale: 1,        // Minimum subpixel pitch (fine detail)
+    maxPixelScale: 24,       // Maximum subpixel pitch
     rowPitchFactor: 0.86,    // Vertical stagger ratio
     blackMatrixRatio: 0.22,  // Black matrix spacing
     greenSizeRatio: 0.80,    // Green subpixel size
