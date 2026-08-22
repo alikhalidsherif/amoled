@@ -1,4 +1,5 @@
 import { createQualityGovernor } from "./player/quality.js";
+import AMOLEDPlayer from "./player/amoplayer.js";
 
 {
     const AMOLED = window.AMOLED || (window.AMOLED = {});
@@ -532,5 +533,25 @@ import { createQualityGovernor } from "./player/quality.js";
     // Debug/testing hook (not part of the public API).
     window.__sim = sim;
 
-    init();
+    // INVARIANT: exactly ONE owner of the renderer instance. When a scene
+    // is requested via ?scene=, the player drives the renderer and the
+    // legacy demo media loop never starts.
+    const sceneParam = new URLSearchParams(location.search).get("scene");
+    if (sceneParam) {
+        const player = new AMOLEDPlayer({
+            renderer: sim,
+            events: {
+                onerror: function (err) {
+                    console.error("[amoled-player]", err);
+                    const el = document.getElementById("sim-status");
+                    if (el) el.textContent = "scene error: " + err.message;
+                }
+            }
+        });
+        window.__player = player;
+        player.load(sceneParam).then(function () { return player.play(); });
+        updateStatus("scene:" + sceneParam);
+    } else {
+        init();
+    }
 }

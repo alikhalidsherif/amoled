@@ -166,6 +166,8 @@
         }
 
         render() {
+            this.framesRendered = (this.framesRendered || 0) + 1;
+
             var ctx = this.ctx;
 
             ctx.fillStyle = "#000000";
@@ -319,6 +321,7 @@
             var fb = this.frameBuffer;
             return {
                 engine: "canvas2d",
+                framesRendered: this.framesRendered || 0,
                 viewportWidth: this.viewportWidth,
                 viewportHeight: this.viewportHeight,
                 pixelScale: this.currentPixelScale,

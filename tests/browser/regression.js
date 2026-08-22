@@ -1,12 +1,14 @@
 // Verifies: (1) bloom floor/radius now visibly change output,
 // (2) context loss recovers, (3) pitch UI stays in sync across media loads.
 "use strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 const puppeteer = require("puppeteer-core");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = path.join(__dirname, "..", "..");
+const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "..");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".json": "application/json", ".gif": "image/gif" };
 
 const server = http.createServer((req, res) => {

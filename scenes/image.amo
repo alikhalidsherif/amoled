@@ -2,6 +2,6 @@
   "amo": 1,
   "meta": { "name": "sample still", "author": "ali" },
   "quality": { "logicalResolution": { "width": 320, "height": 180 } },
-  "assets": { "still": "sample-gradient.png" },
+  "assets": { "still": "../assets/sample-gradient.png" },
   "scene": { "type": "image", "asset": "still", "fit": "cover" }
 }

@@ -673,6 +673,7 @@
                 return;
             }
             this._renderStart = performance.now();
+            this.framesRendered = (this.framesRendered || 0) + 1;
             const gl = this.gl;
             const m = this.geometry.metrics;
             const cfg = this.config;
@@ -785,6 +786,7 @@
             const m = this.geometry.metrics;
             return {
                 engine: this.engine,
+                framesRendered: this.framesRendered || 0,
                 hdr: this.hdr,
                 contextLost: this._contextLost,
                 supersample: this.supersampleUsed,

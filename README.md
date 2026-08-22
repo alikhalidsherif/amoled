@@ -175,7 +175,31 @@ light emitters:
 4. **Encode** — linear result is converted back to sRGB for the host monitor.
 
 The Canvas 2D fallback draws subpixel shapes directly with a simple bloom
-composite.
+composite. It is an approximation: physical parameters (gamma, sigma, spill,
+maxOutput) are WebGL2-only.
+
+### `.amo` scene system (Phase 3+)
+
+Scenes are JSON files with a `.amo` extension describing WHAT the display
+should show; the engine describes HOW the simulated panel renders it.
+
+```js
+import AMOLEDPlayer from "./src/player/amoplayer.js";
+const player = new AMOLEDPlayer({ renderer: sim });
+await player.load("/scenes/gradient.amo");
+player.play();
+```
+
+- `?scene=<url>` on the demo page routes through the player instead of the
+  legacy media loop (single owner of the renderer).
+- Static scenes render exactly once — no rAF loop.
+- Logical resolution auto-matches display aspect; scenes are resolution-
+  independent (normalized coordinates).
+
+```
+.amo file → parser → validator → assets → runtime clock → rasterizer
+          → loadFrameBuffer → PenTile emitter physics → canvas
+```
 
 ### Simulation pipeline
 
