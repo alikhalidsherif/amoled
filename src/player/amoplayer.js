@@ -89,11 +89,13 @@ export default class AMOLEDPlayer {
 
             const assets = await loadAssets(parsed.definition, this._caches.assetCache, this._decoderFactory);
 
+
             // Static-frame reuse: same definition + size ⇒ skip rasterize.
             const runtime = this.runtime;
 
             if (this._onSceneApplied) this._onSceneApplied(parsed.definition);
             runtime.setScene({ definition: parsed.definition, assets });
+
             if (this.qualityNegotiator) {
                 this.qualityNegotiator.refreshRequest(parsed.definition.quality);
             }

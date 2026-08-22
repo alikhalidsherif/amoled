@@ -22,6 +22,14 @@ export function parseAmo(source, baseUrl) {
         }
     } else if (source && typeof source === "object") {
         raw = source;
+        // Already a normalized SceneDefinition (our own output): trust and
+        // pass through so player.load(parsedDefinition) works (PLAN.md §Phase 3).
+        if (raw.amo === undefined && raw.version === 1 && raw.scene) {
+            return Object.freeze({
+                definition: Object.freeze(raw),
+                warnings: Object.freeze([])
+            });
+        }
     } else {
         throw new AmoError("", "scene must be a JSON string or object");
     }

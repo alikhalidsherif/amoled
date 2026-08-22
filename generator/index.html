@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>.amo Scene Generator</title>
+<style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; background: #050505; color: #bbb;
+        font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+        display: grid; grid-template-columns: 340px 1fr; height: 100vh;
+    }
+    #form-pane { overflow-y: auto; padding: 14px; border-right: 1px solid #1a1a1a; }
+    h1 { font-size: 13px; color: #7ec97e; margin: 4px 0 12px; }
+    h2 { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .08em;
+         border-bottom: 1px solid #1a1a1a; padding-bottom: 3px; margin: 18px 0 8px; }
+    label { display: block; color: #777; margin-top: 8px; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row > * { flex: 1; }
+    input, select, textarea {
+        width: 100%; background: #101010; color: #ccc; border: 1px solid #222;
+        padding: 4px 6px; font: inherit; border-radius: 3px;
+    }
+    input[type="color"] { padding: 1px; height: 28px; }
+    textarea { resize: vertical; font-size: 11px; }
+    button {
+        background: #143314; color: #9c9; border: 1px solid #255; padding: 6px 12px;
+        font: inherit; cursor: pointer; border-radius: 3px; margin-top: 10px;
+    }
+    button:hover { background: #1b451b; }
+    button.secondary { background: #141414; color: #999; }
+    #preview-pane { display: flex; flex-direction: column; }
+    #shell { flex: 1; position: relative; background: #000; }
+    #preview-canvas { width: 100%; height: 100%; display: block; }
+    #status {
+        padding: 6px 14px; font-size: 11px; color: #666; border-top: 1px solid #1a1a1a;
+        white-space: pre-wrap; min-height: 40px;
+    }
+    .err { color: #c66 !important; }
+    .warn { color: #cc8 !important; }
+</style>
+</head>
+<body>
+<div id="form-pane">
+    <h1>.amo scene generator</h1>
+
+    <h2>Meta</h2>
+    <label>Name <input id="f-name" value="my scene"></label>
+    <label>Author <input id="f-author" value=""></label>
+
+    <h2>Display (art direction)</h2>
+    <label>Gamma <input id="f-gamma" type="number" min="0.5" max="4" step="0.1" value="1.7"></label>
+    <label>Spill <input id="f-spill" type="number" min="0" max="0.6" step="0.01" value="0.40"></label>
+    <div class="row">
+        <label>Brightness <input id="f-active" type="number" min="0" max="1" step="0.05" value="1"></label>
+        <label>Off-pixel <input id="f-inactive" type="number" min="0" max="0.5" step="0.01" value="0.035"></label>
+    </div>
+    <div class="row">
+        <label>Bloom <input id="f-bloomI" type="number" min="0" max="1" step="0.05" value="0.2"></label>
+        <label>Floor <input id="f-bloomT" type="number" min="0" max="1" step="0.05" value="0.45"></label>
+        <label>Radius <input id="f-bloomR" type="number" min="2" max="40" step="1" value="16"></label>
+    </div>
+    <details><summary>Pentile / emitters (advanced)</summary>
+        <div class="row">
+            <label>R σ <input id="f-sigR" type="number" step="0.05" value="0.55"></label>
+            <label>G σ <input id="f-sigG" type="number" step="0.05" value="0.35"></label>
+            <label>B σ <input id="f-sigB" type="number" step="0.05" value="0.65"></label>
+        </div>
+        <div class="row">
+            <label>R out <input id="f-maxR" type="number" step="0.05" value="0.70"></label>
+            <label>G out <input id="f-maxG" type="number" step="0.05" value="1"></label>
+            <label>B out <input id="f-maxB" type="number" step="0.05" value="0.55"></label>
+        </div>
+        <div class="row">
+            <label>Row pitch <input id="f-rowPitch" type="number" step="0.02" value="0.86"></label>
+            <label>Matrix <input id="f-matrix" type="number" step="0.02" value="0.22"></label>
+        </div>
+    </details>
+
+    <h2>Quality</h2>
+    <div class="row">
+        <label>FPS <input id="f-fps" type="number" min="1" max="60" value="30"></label>
+        <label>Supersample <select id="f-ss"><option value="">auto</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+    </div>
+    <div class="row">
+        <label>Logical W <input id="f-lw" type="number" placeholder="auto"></label>
+        <label>H <input id="f-lh" type="number" placeholder="auto"></label>
+    </div>
+
+    <h2>Scene</h2>
+    <label>Type <select id="f-type">
+        <option value="gradient">gradient</option>
+        <option value="color">color</option>
+        <option value="expression">expression</option>
+        <option value="image">image</option>
+        <option value="gif">gif</option>
+        <option value="video">video</option>
+    </select></label>
+    <div id="scene-fields"></div>
+
+    <button id="btn-export">⬇ Export .amo</button>
+    <button id="btn-import" class="secondary">⬆ Import .amo</button>
+    <input type="file" id="file-import" accept=".amo,.json" style="display:none">
+</div>
+
+<div id="preview-pane">
+    <div id="shell"><canvas id="preview-canvas"></canvas></div>
+    <div id="status">ready</div>
+</div>
+
+<script src="../src/engine/util.js"></script>
+<script src="../src/engine/config.js"></script>
+<script src="../src/engine/frame-buffer.js"></script>
+<script src="../src/engine/diamond-pentile-geometry.js"></script>
+<script src="../src/engine/amoled-gpu-renderer.js"></script>
+<script src="../src/patterns.js"></script>
+<script src="../src/media-loader.js"></script>
+<script type="module" src="./generator.js"></script>
+</body>
+</html>
