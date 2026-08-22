@@ -163,7 +163,25 @@
             ui.manualScaleRow.style.display = "none";
             sim.updateConfig({ autoPixelScale: true, pixelScale: null });
         }
+        refreshPitchUI();
         updateStatus("scale-change");
+    }
+
+    // Reflect the simulator's actual scale state into the controls so
+    // programmatic pitch changes (e.g. animated media forcing a coarser
+    // pitch) never leave stale values in the UI.
+    function refreshPitchUI() {
+        if (!ui.scaleMode || !ui.pixelScaleInput) return;
+        if (sim.config.autoPixelScale) {
+            ui.scaleMode.value = "auto";
+            ui.manualScaleRow.style.display = "none";
+        } else {
+            ui.scaleMode.value = "manual";
+            ui.manualScaleRow.style.display = "grid";
+            const pitch = Number(sim.config.pixelScale) ||
+                sim.getStats().pixelScale;
+            ui.pixelScaleInput.value = String(Math.round(pitch * 4) / 4);
+        }
     }
 
     function togglePanel() {
@@ -185,7 +203,14 @@
             // The getFrame() method handles AR preservation with black padding.
             const isAnim = loader.isAnimated();
             if (isAnim) {
-                sim.updateConfig({ pixelScale: 8, autoPixelScale: false });
+                // Only force the coarse animated pitch when auto density
+                // would land finer than 8 — keep the user's coarser manual
+                // choice if they already picked one.
+                const currentPitch = Number(sim.config.pixelScale) || 0;
+                if (sim.config.autoPixelScale || currentPitch < 8) {
+                    sim.updateConfig({ pixelScale: 8, autoPixelScale: false });
+                }
+                refreshPitchUI();
             } else {
                 setScaleMode(ui.scaleMode.value);
             }
@@ -228,7 +253,14 @@
 
             const isAnim = loader.isAnimated();
             if (isAnim) {
-                sim.updateConfig({ pixelScale: 8, autoPixelScale: false });
+                // Only force the coarse animated pitch when auto density
+                // would land finer than 8 — keep the user's coarser manual
+                // choice if they already picked one.
+                const currentPitch = Number(sim.config.pixelScale) || 0;
+                if (sim.config.autoPixelScale || currentPitch < 8) {
+                    sim.updateConfig({ pixelScale: 8, autoPixelScale: false });
+                }
+                refreshPitchUI();
             } else {
                 setScaleMode(ui.scaleMode.value);
             }

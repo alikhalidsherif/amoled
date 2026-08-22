@@ -305,6 +305,14 @@
 
             this._initGlResources();
 
+            // Context loss (driver resets, GPU timeouts) is recoverable:
+            // park the renderer and rebuild everything on restore.
+            this._contextLost = false;
+            this._boundContextLost = this._handleContextLost.bind(this);
+            this._boundContextRestored = this._handleContextRestored.bind(this);
+            this.canvas.addEventListener("webglcontextlost", this._boundContextLost, false);
+            this.canvas.addEventListener("webglcontextrestored", this._boundContextRestored, false);
+
             this.renderQueued = false;
             this._boundResize = this.resize.bind(this);
             this._resizeObserver = null;
@@ -354,6 +362,48 @@
             this.sceneTarget = null;
             this.bloomATarget = null;
             this.bloomBTarget = null;
+
+            // Frame data must be re-uploaded after a rebuild.
+            this._frameDirty = true;
+        }
+
+        _deleteGlResources() {
+            const gl = this.gl;
+            if (this.vao) gl.deleteVertexArray(this.vao);
+            for (const p of [this.progEmission, this.progBright, this.progBlur, this.progComposite]) {
+                if (p) gl.deleteProgram(p);
+            }
+            if (this.sourceTexture) gl.deleteTexture(this.sourceTexture);
+            this._destroyTarget(this.sceneTarget);
+            this._destroyTarget(this.bloomATarget);
+            this._destroyTarget(this.bloomBTarget);
+        }
+
+        _handleContextLost(event) {
+            event.preventDefault();
+            this._contextLost = true;
+            console.warn("[amoled-gpu] WebGL context lost; pausing renders.");
+        }
+
+        _handleContextRestored() {
+            this._contextLost = false;
+            console.info("[amoled-gpu] WebGL context restored; rebuilding pipeline.");
+            // Extensions do NOT survive a context restore — re-request,
+            // otherwise HDR targets are incomplete and nothing renders.
+            this.hdr = Boolean(this.gl.getExtension("EXT_color_buffer_float"));
+            try {
+                this._deleteGlResources();
+            } catch (err) {
+                console.warn("[amoled-gpu] cleanup during restore failed:", err);
+            }
+            this._initGlResources();
+            // Re-upload whatever frame was active before the loss.
+            const fb = this.frameBuffer;
+            this.frameBuffer = null;
+            if (fb && this._lastFrameData) {
+                this.loadFrameBuffer(fb.width, fb.height, this._lastFrameData);
+            }
+            this.resize();
         }
 
         _createTexture(w, h) {
@@ -377,12 +427,27 @@
 
         _createTarget(w, h) {
             const gl = this.gl;
-            const tex = this._createTexture(w, h);
-            const fbo = gl.createFramebuffer();
+            let tex = this._createTexture(w, h);
+            let fbo = gl.createFramebuffer();
             gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
             gl.framebufferTexture2D(
                 gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0
             );
+
+            // HDR targets can be incomplete after context restores even when
+            // the extension reports available — degrade to RGBA8 gracefully.
+            if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE && this.hdr) {
+                console.warn("[amoled-gpu] HDR target incomplete; falling back to RGBA8.");
+                this.hdr = false;
+                gl.deleteTexture(tex);
+                gl.deleteFramebuffer(fbo);
+                tex = this._createTexture(w, h);
+                fbo = gl.createFramebuffer();
+                gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+                gl.framebufferTexture2D(
+                    gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0
+                );
+            }
             gl.bindFramebuffer(gl.FRAMEBUFFER, null);
             return { tex, fbo, width: Math.max(1, w), height: Math.max(1, h) };
         }
@@ -396,6 +461,16 @@
         loadFrameBuffer(width, height, dataArray) {
             const w = Math.max(1, width | 0);
             const h = Math.max(1, height | 0);
+
+            // Keep a reference so the frame survives context loss/restore.
+            this._lastFrameData = dataArray;
+
+            if (this._contextLost) {
+                // Context is gone; just remember the frame. The restore
+                // handler re-uploads it.
+                this.frameBuffer = { width: w, height: h };
+                return;
+            }
 
             // Expand packed RGB into RGBA for upload.
             const rgba = new Uint8Array(w * h * 4);
@@ -561,6 +636,9 @@
         }
 
         render() {
+            if (this._contextLost) {
+                return;
+            }
             const gl = this.gl;
             const m = this.geometry.metrics;
             const cfg = this.config;
@@ -605,11 +683,23 @@
             });
 
             // ---- Pass 2: bloom extraction at quarter res -----------------
+            // The bloom floor is a fraction of the panel's peak emitter
+            // luminance, not an absolute value — an absolute 0.70 sits above
+            // almost every real emission sample and bloom never fires.
+            const drivePeak = Math.min(1, clamp01(cfg.activeLevel) + inactiveLinear);
+            const gamma = positive(cfg.emitterGamma, 1.8);
+            const response = Math.pow(drivePeak, gamma);
+            const peakLum =
+                0.2126 * clamp01(cfg.redMaxOutput) * response +
+                0.7152 * clamp01(cfg.greenMaxOutput) * response +
+                0.0722 * clamp01(cfg.blueMaxOutput) * response;
+
             this._drawPass(this.bloomATarget, this.progBright, () => {
                 gl.activeTexture(gl.TEXTURE0);
                 gl.bindTexture(gl.TEXTURE_2D, this.sceneTarget.tex);
                 gl.uniform1i(this.uBright("uScene"), 0);
-                gl.uniform1f(this.uBright("uThreshold"), positive(cfg.bloomThreshold, 0.7));
+                gl.uniform1f(this.uBright("uThreshold"),
+                    clamp01(cfg.bloomThreshold) * peakLum);
                 gl.uniform1f(this.uBright("uPower"), positive(cfg.bloomPower, 2.0));
                 gl.uniform1f(this.uBright("uStrength"), clamp01(cfg.bloomIntensity));
             });
@@ -652,6 +742,7 @@
             return {
                 engine: this.engine,
                 hdr: this.hdr,
+                contextLost: this._contextLost,
                 supersample: this.supersampleUsed,
                 internalResolution:
                     this.internalWidth + "x" + this.internalHeight,
@@ -672,6 +763,8 @@
                 this._resizeObserver = null;
             }
             global.removeEventListener("resize", this._boundResize);
+            this.canvas.removeEventListener("webglcontextlost", this._boundContextLost, false);
+            this.canvas.removeEventListener("webglcontextrestored", this._boundContextRestored, false);
             const ext = this.gl.getExtension("WEBGL_lose_context");
             if (ext) {
                 ext.loseContext();

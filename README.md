@@ -114,18 +114,18 @@ AMOLED.DEFAULT_ENGINE_CONFIG = {
 
     // Physical emitter model (GPU renderer)
     emitterGamma: 1.8,       // Emitter response exponent (L = drive^gamma)
-    opticalSpill: 0.05,      // Gaussian spill fraction per emitter
+    opticalSpill: 0.12,      // Gaussian spill fraction per emitter
     redMaxOutput: 0.70,      // Per-channel maximum output
     greenMaxOutput: 1.00,
     blueMaxOutput: 0.55,
-    redSigma: 0.45,          // Optical spread sigma (pitch units)
+    redSigma: 0.55,          // Optical spread sigma (pitch units)
     greenSigma: 0.35,
-    blueSigma: 0.55,
-    supersample: 2,          // Internal resolution multiplier (1-4)
+    blueSigma: 0.65,
+    supersample: 1,          // Internal resolution multiplier (1-4)
     maxInternalPixels: 33554432,  // Emission-pass fragment budget
-    bloomThreshold: 0.70,    // Smooth bloom onset in linear luminance
+    bloomThreshold: 0.45,    // Bloom onset as fraction of peak luminance
     bloomPower: 2.0,         // Bloom falloff exponent
-    bloomRadius: 12,         // Bloom blur radius (device px)
+    bloomRadius: 16,         // Bloom blur radius (device px)
 
     inactiveLevel: 0.035,    // Off-pixel brightness (0-1)
     activeLevel: 1.0,        // Active brightness (0-1)
