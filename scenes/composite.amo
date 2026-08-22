@@ -1,0 +1,23 @@
+{
+  "amo": 1,
+  "meta": { "name": "layered glow", "author": "ali" },
+  "display": { "gamma": 1.4, "spill": 0.40, "bloom": { "intensity": 0.25 } },
+  "quality": { "fps": 30 },
+  "timeline": { "duration": 8, "loop": true },
+  "scene": {
+    "type": "composite",
+    "layers": [
+      { "type": "gradient", "from": "#001a08", "to": "#123f20", "direction": "vertical" },
+      { "type": "image", "asset": "still", "fit": "cover", "opacity": 0.5, "blend": "screen" },
+      {
+        "type": "expression",
+        "r": "0.10 + 0.10*noise(x*0.1 + t*0.5, y*0.1)",
+        "g": "0.12 + 0.12*noise(x*0.1 + t*0.5, y*0.1)",
+        "b": "0.06",
+        "blend": "add",
+        "opacity": 0.3
+      }
+    ]
+  },
+  "assets": { "still": "../assets/sample-gradient.png" }
+}

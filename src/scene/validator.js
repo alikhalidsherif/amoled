@@ -109,6 +109,139 @@ function isStructural(propertyPath) {
 
 // ------------------------------------------------------------------
 
+// Known fields per content type (for unknown-field warnings).
+const KNOWN_FIELDS_FOR_TYPE = {
+    color: ["type", "color"],
+    gradient: ["type", "from", "to", "direction"],
+    image: ["type", "asset", "fit"],
+    gif: ["type", "asset", "fit"],
+    video: ["type", "asset", "fit", "muted"],
+    pattern: ["type", "pattern"],
+    expression: ["type", "r", "g", "b", "seed"],
+    composite: ["type", "layers"]
+};
+
+// Layer-only compositing fields.
+const KNOWN_LAYER_FIELDS = ["opacity", "blend", "rect", "offset", "scale"];
+const KNOWN_BLENDS = new Set(["normal", "add", "multiply", "screen", "overlay"]);
+
+/**
+ * Normalizes a scene CONTENT object (top-level scene or composite layer).
+ * Returns frozen { type, ...fields }. Recurses into composite layers.
+ */
+function normalizeSceneContent(s, path, warnings, assets) {
+    if (!s || typeof s !== "object") fail(path, "scene object is required");
+    if (!KNOWN_SCENE_TYPES.has(s.type)) {
+        fail(`${path}.type`, `unknown scene type ${JSON.stringify(s.type)}`);
+    }
+
+    const knownForType = [...(KNOWN_FIELDS_FOR_TYPE[s.type] || []), ...KNOWN_LAYER_FIELDS];
+    for (const k of Object.keys(s)) {
+        if (!knownForType.includes(k)) {
+            warnings.push(`${path}.${k}: unknown field for type "${s.type}" ignored`);
+        }
+    }
+
+    const scene = { type: s.type };
+
+    if (s.type === "color") {
+        scene.color = normalizeColor(s.color ?? "#000000", `${path}.color`) ?? { r: 0, g: 0, b: 0 };
+    } else if (s.type === "gradient") {
+        scene.from = normalizeColor(s.from ?? "#000000", `${path}.from`) ?? { r: 0, g: 0, b: 0 };
+        scene.to = normalizeColor(s.to ?? "#ffffff", `${path}.to`) ?? { r: 1, g: 1, b: 1 };
+        if (s.direction !== undefined && !KNOWN_DIRECTIONS.has(s.direction)) {
+            fail(`${path}.direction`, `expected one of ${[...KNOWN_DIRECTIONS].join("|")}, got "${s.direction}"`);
+        }
+        scene.direction = s.direction || "vertical";
+    } else if (s.type === "image" || s.type === "gif") {
+        if (typeof s.asset !== "string") fail(`${path}.asset`, "expected asset name string");
+        if (!(s.asset in (assets || {}))) fail(`${path}.asset`, `references unknown asset "${s.asset}"`);
+        scene.asset = s.asset;
+        if (s.fit !== undefined && !KNOWN_FIT.has(s.fit)) {
+            fail(`${path}.fit`, `expected one of ${[...KNOWN_FIT].join("|")}, got "${s.fit}"`);
+        }
+        scene.fit = s.fit || "cover";
+    } else if (s.type === "video") {
+        if (typeof s.asset !== "string") fail(`${path}.asset`, "expected asset name string");
+        if (!(s.asset in (assets || {}))) fail(`${path}.asset`, `references unknown asset "${s.asset}"`);
+        scene.asset = s.asset;
+        scene.muted = s.muted !== false;
+    } else if (s.type === "pattern") {
+        scene.pattern = typeof s.pattern === "string" ? s.pattern : "dots";
+    } else if (s.type === "expression") {
+        for (const c of ["r", "g", "b"]) {
+            if (typeof s[c] !== "string") fail(`${path}.${c}`, "expression scenes require string expressions for r/g/b");
+            scene[c] = s[c];
+        }
+        scene.seed = isFiniteNumber(s.seed) ? s.seed : 1;
+    } else if (s.type === "composite") {
+        if (!Array.isArray(s.layers)) fail(`${path}.layers`, "expected array");
+        if (s.layers.length === 0) fail(`${path}.layers`, "composite needs at least one layer");
+        scene.layers = s.layers.map((l, i) => normalizeLayer(l, `${path}.layers[${i}]`, warnings, assets));
+    }
+
+    return Object.freeze(scene);
+}
+
+function normalizeLayer(l, path, warnings, assets) {
+    if (!l || typeof l !== "object") fail(path, "layer must be an object");
+
+    // Compositing fields first (warnings reference layer path).
+    const layerMeta = {};
+    layerMeta.opacity = num(l.opacity, `${path}.opacity`, 0, 1, 1, warnings);
+    if (l.blend !== undefined && !KNOWN_BLENDS.has(l.blend)) {
+        fail(`${path}.blend`, `expected one of ${[...KNOWN_BLENDS].join("|")}, got "${l.blend}"`);
+    }
+    layerMeta.blend = l.blend || "normal";
+
+    let rect = null;
+    if (l.rect !== undefined && l.rect !== null) {
+        if (typeof l.rect !== "object") fail(`${path}.rect`, "expected {x,y,w,h}");
+        rect = Object.freeze({
+            x: num(l.rect.x, `${path}.rect.x`, -1, 1, 0, warnings),
+            y: num(l.rect.y, `${path}.rect.y`, -1, 1, 0, warnings),
+            w: num(l.rect.w, `${path}.rect.w`, 0.01, 2, 1, warnings),
+            h: num(l.rect.h, `${path}.rect.h`, 0.01, 2, 1, warnings)
+        });
+    }
+    if (rect) layerMeta.rect = rect;
+
+    let offset = null;
+    if (l.offset !== undefined && l.offset !== null) {
+        if (typeof l.offset !== "object") fail(`${path}.offset`, "expected {x,y}");
+        offset = Object.freeze({
+            x: num(l.offset.x, `${path}.offset.x`, -1, 1, 0, warnings),
+            y: num(l.offset.y, `${path}.offset.y`, -1, 1, 0, warnings)
+        });
+    }
+    if (offset) layerMeta.offset = offset;
+    if (l.scale !== undefined && l.scale !== null) {
+        layerMeta.scale = num(l.scale, `${path}.scale`, 0.01, 8, 1, warnings);
+    }
+
+    const content = normalizeSceneContent(l, path, warnings, assets);
+
+    // Merge compositing fields into the frozen content copy.
+    const merged = Object.assign({}, content, layerMeta);
+    return Object.freeze(merged);
+}
+
+/** Static detection for any content object (§5.8 extended to layers). */
+function sceneIsStatic(scene) {
+    if (scene.type === "composite") {
+        return scene.layers.every(l => sceneIsStatic(l));
+    }
+    if (!STATIC_TYPES.has(scene.type)) {
+        if (scene.type === "expression") {
+            return !(expressionReferencesTime(scene.r) ||
+                     expressionReferencesTime(scene.g) ||
+                     expressionReferencesTime(scene.b));
+        }
+        return false;
+    }
+    return true;
+}
+
 export function validateAndNormalize(raw, baseUrl) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
         fail("", "scene must be a JSON object");
@@ -223,61 +356,7 @@ export function validateAndNormalize(raw, baseUrl) {
     }
 
     // --- scene ---
-    const s = raw.scene;
-    if (!s || typeof s !== "object") fail("scene", "scene object is required");
-    if (!KNOWN_SCENE_TYPES.has(s.type)) fail("scene.type", `unknown scene type ${JSON.stringify(s.type)}`);
-
-    for (const k of Object.keys(s)) {
-        const knownForType = {
-            color: ["type", "color"],
-            gradient: ["type", "from", "to", "direction"],
-            image: ["type", "asset", "fit"],
-            gif: ["type", "asset", "fit"],
-            video: ["type", "asset", "fit", "muted"],
-            pattern: ["type", "pattern"],
-            expression: ["type", "r", "g", "b", "seed"],
-            composite: ["type", "layers"]
-        }[s.type] || [];
-        if (!knownForType.includes(k)) warnings.push(`scene.${k}: unknown field for type "${s.type}" ignored`);
-    }
-
-    const scene = { type: s.type };
-
-    if (s.type === "color") {
-        scene.color = normalizeColor(s.color ?? "#000000", "scene.color") ?? { r: 0, g: 0, b: 0 };
-    } else if (s.type === "gradient") {
-        scene.from = normalizeColor(s.from ?? "#000000", "scene.from") ?? { r: 0, g: 0, b: 0 };
-        scene.to = normalizeColor(s.to ?? "#ffffff", "scene.to") ?? { r: 1, g: 1, b: 1 };
-        if (s.direction !== undefined && !KNOWN_DIRECTIONS.has(s.direction)) {
-            fail("scene.direction", `expected one of ${[...KNOWN_DIRECTIONS].join("|")}, got "${s.direction}"`);
-        }
-        scene.direction = s.direction || "vertical";
-    } else if (s.type === "image" || s.type === "gif") {
-        if (typeof s.asset !== "string") fail("scene.asset", "expected asset name string");
-        if (!(s.asset in assets)) fail("scene.asset", `references unknown asset "${s.asset}"`);
-        scene.asset = s.asset;
-        if (s.fit !== undefined && !KNOWN_FIT.has(s.fit)) {
-            fail("scene.fit", `expected one of ${[...KNOWN_FIT].join("|")}, got "${s.fit}"`);
-        }
-        scene.fit = s.fit || "cover";
-    } else if (s.type === "video") {
-        if (typeof s.asset !== "string") fail("scene.asset", "expected asset name string");
-        if (!(s.asset in assets)) fail("scene.asset", `references unknown asset "${s.asset}"`);
-        scene.asset = s.asset;
-        scene.muted = s.muted !== false;
-    } else if (s.type === "pattern") {
-        scene.pattern = typeof s.pattern === "string" ? s.pattern : "dots";
-    } else if (s.type === "expression") {
-        for (const c of ["r", "g", "b"]) {
-            if (typeof s[c] !== "string") fail(`scene.${c}`, "expression scenes require string expressions for r/g/b");
-            scene[c] = s[c];
-        }
-        scene.seed = isFiniteNumber(s.seed) ? s.seed : 1;
-    } else if (s.type === "composite") {
-        // Full validation arrives with Phase 6; structural check here.
-        if (!Array.isArray(s.layers)) fail("scene.layers", "expected array");
-        scene.layers = s.layers;
-    }
+    const scene = normalizeSceneContent(raw.scene, "scene", warnings, assets);
 
     // --- timeline ---
     let timeline = null;
@@ -331,26 +410,17 @@ export function validateAndNormalize(raw, baseUrl) {
         timeline = Object.freeze({ duration, loop, keyframes });
     }
 
-    // --- static detection (§5.8) ---
+    // --- static detection (§5.8, extended to composite layers in Phase 6) ---
     let isStatic =
-        STATIC_TYPES.has(scene.type) &&
+        sceneIsStatic(scene) &&
         (timeline === null || timeline.keyframes.length === 0);
 
-    // Expression scenes are static iff NO channel references time (§Phase 5).
-    let expressionAnimated = false;
-    if (scene.type === "expression") {
-        expressionAnimated =
-            expressionReferencesTime(scene.r) ||
-            expressionReferencesTime(scene.g) ||
-            expressionReferencesTime(scene.b);
-        isStatic = !expressionAnimated && (timeline === null || timeline.keyframes.length === 0);
-
-        // Budget guardrail §3.5: warn above the guaranteed-smooth budget.
-        if ((quality.logicalWidth || 0) > 480 || (quality.logicalHeight || 0) > 270) {
-            warnings.push("quality.logicalResolution: expression scene above the 480x270 smooth budget; may need the Phase 10 GPU path");
-        }
+    // Budget guardrail §3.5: warn above the guaranteed-smooth budget.
+    if ((scene.type === "expression" ||
+         (scene.type === "composite" && scene.layers.some(l => l.type === "expression"))) &&
+        ((quality.logicalWidth || 0) > 480 || (quality.logicalHeight || 0) > 270)) {
+        warnings.push("quality.logicalResolution: expression scene above the 480x270 smooth budget; may need the Phase 10 GPU path");
     }
-    if (scene.type === "composite") isStatic = false;   // conservative until Phase 6
 
     return {
         definition: {

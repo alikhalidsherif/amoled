@@ -103,9 +103,10 @@ export function computeFit(srcW, srcH, dstW, dstH, fit) {
 
 function rasterizeExpression(definition, scene, w, h, t, out) {
     const prog = getProgram(scene);
+    const fps = definition && definition.quality ? definition.quality.fps : 30;
     const E = {
         t,
-        frame: Math.floor(t * Math.max(1, definition.quality.fps || 30)),
+        frame: Math.floor(t * Math.max(1, fps || 30)),
         width: w,
         height: h,
         u: 0, v: 0,
@@ -159,13 +160,24 @@ function rasterizeImage(scene, w, h, assets, out) {
 
 /**
  * @param {object} definition - normalized SceneDefinition.
- * @param {number} _t - timeline time in seconds (unused by v1 static types).
+ * @param {number} t - timeline time in seconds.
  * @param {{width:number,height:number}} size - logical resolution.
  * @param {object} assets - name -> decoded asset (ImageBitmap).
  * @param {Uint8ClampedArray} [out] - reusable output buffer.
  * @returns {Uint8ClampedArray} packed RGB, length w*h*3.
  */
-export function rasterize(definition, _t, size, assets, out) {
+export function rasterize(definition, t, size, assets, out) {
+    if (definition.scene.type === "composite") {
+        return compositeLayers(definition.scene.layers, t, size, assets, out);
+    }
+    return rasterizeScene(definition.scene, definition, t, size, assets, out);
+}
+
+/**
+ * Rasterize ONE scene content object (no compositing). Exported for the
+ * compositor, which calls it per layer.
+ */
+export function rasterizeScene(scene, definition, t, size, assets, out) {
     const w = size.width | 0;
     const h = size.height | 0;
     const needed = w * h * 3;
@@ -173,7 +185,6 @@ export function rasterize(definition, _t, size, assets, out) {
         out = new Uint8ClampedArray(needed);
     }
 
-    const scene = definition.scene;
     switch (scene.type) {
         case "color": {
             const c = scene.color;
@@ -185,10 +196,13 @@ export function rasterize(definition, _t, size, assets, out) {
         case "gradient":
             return rasterizeGradient(scene, w, h, out);
         case "expression":
-            return rasterizeExpression(definition, scene, w, h, _t, out);
+            return rasterizeExpression(definition || { quality: { fps: 30 } }, scene, w, h, t, out);
         case "image":
             return rasterizeImage(scene, w, h, assets, out);
         default:
             throw new Error(`rasterize: unsupported scene type "${scene.type}"`);
     }
 }
+
+// Late-bound to avoid circular import at module evaluation time.
+import { compositeLayers } from "./compositor.js";
