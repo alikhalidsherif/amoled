@@ -176,7 +176,7 @@ light emitters:
 
 The Canvas 2D fallback draws subpixel shapes directly with a simple bloom
 composite. It is an approximation: physical parameters (gamma, sigma, spill,
-maxOutput) are WebGL2-only.
+maxOutput) are WebGL2-only and intentionally not replicated there.
 
 ### `.amo` scene system (Phase 3+)
 

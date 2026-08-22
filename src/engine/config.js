@@ -45,6 +45,11 @@
         bloomPower: 2.0,
         bloomRadius: 16,
 
+        // Emitter optics (Phase 7 promotion of former GLSL constants).
+        coreSoftness: 0.75,      // px of core-edge anti-aliasing softness
+        haloNearShare: 0.65,     // spill split: near-blend lobe share
+        haloNearSigmaScale: 0.16,// near lobe sigma = sigma^2 * this (in px^2 terms)
+
         inactiveLevel: 0.035,
         activeLevel: 1.0,
         bloomIntensity: 0.0,

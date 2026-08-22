@@ -40,6 +40,9 @@
     uniform vec3  uSigma;       // R,G,B optical spread (pitch units)
     uniform float uGamma;       // emitter response exponent
     uniform float uSpill;       // fraction of energy in gaussian halo
+    uniform float uCoreSoftness;     // px, core edge AA softness
+    uniform float uHaloNearShare;    // near-lobe share of the spill budget
+    uniform float uHaloNearScale;    // near-lobe sigma^2 scale vs far lobe
     uniform vec2  uDrive;       // activeLevel, inactiveLevel(linear)
 
     vec3 srgbToLinear(vec3 c) {
@@ -62,7 +65,7 @@
         int c1 = int(floor((p.x + marginX) / uPitch.x)) + 1;
 
         vec3 acc = vec3(0.0);
-        float aa = 0.75; // px, core edge softness at internal resolution
+        float aa = max(0.25, uCoreSoftness); // px, core edge softness
 
         for (int r = r0; r <= r1; r++) {
             float fr = float(r);
@@ -118,17 +121,15 @@
                     : abs(dp.x) + abs(dp.y) - rad;
                 float core = smoothstep(aa, -aa, sd);
 
-                // Two-lobe optical spill (§10): the near-field lobe is tight
-                // (~0.4 sigma) and does the R/G/B colour blending across
-                // subpixel boundaries; the far-field lobe adds the soft
-                // inter-pixel glow. Splitting them keeps edges crisp at high
-                // spill levels instead of smearing the whole cell.
-                float nearW = uSpill * 0.65;
-                float farW = uSpill * 0.35;
+                // Two-lobe optical spill (§10): near-field lobe blends R/G/B
+                // across subpixel boundaries; far-field adds inter-pixel
+                // glow. Split keeps edges crisp at high spill levels.
+                float nearW = uSpill * uHaloNearShare;
+                float farW = uSpill * (1.0 - uHaloNearShare);
                 float sx2 = 2.0 * sig * sig * uPitch.x * uPitch.x;
                 float sy2 = 2.0 * sig * sig * uPitch.y * uPitch.y;
-                float nx2 = sx2 * 0.16;
-                float ny2 = sy2 * 0.16;
+                float nx2 = sx2 * uHaloNearScale;
+                float ny2 = sy2 * uHaloNearScale;
                 float halo =
                     exp(-dp.x * dp.x / nx2 - dp.y * dp.y / ny2) * nearW +
                     exp(-dp.x * dp.x / sx2 - dp.y * dp.y / sy2) * farW;
@@ -717,6 +718,9 @@
                     positive(cfg.blueSigma ?? D.blueSigma));
                 gl.uniform1f(this.uEmission("uGamma"), positive(cfg.emitterGamma ?? D.emitterGamma));
                 gl.uniform1f(this.uEmission("uSpill"), clamp01(cfg.opticalSpill));
+                gl.uniform1f(this.uEmission("uCoreSoftness"), positive(cfg.coreSoftness ?? D.coreSoftness));
+                gl.uniform1f(this.uEmission("uHaloNearShare"), clamp01(cfg.haloNearShare ?? D.haloNearShare));
+                gl.uniform1f(this.uEmission("uHaloNearScale"), positive(cfg.haloNearSigmaScale ?? D.haloNearSigmaScale));
                 gl.uniform2f(this.uEmission("uDrive"),
                     clamp01(cfg.activeLevel), inactiveLinear);
             });
