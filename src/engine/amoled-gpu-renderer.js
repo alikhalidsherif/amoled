@@ -564,7 +564,10 @@
             this.geometry.rebuild(cssWidth, cssHeight, this.currentPixelScale);
 
             // Effective supersampling, capped by fragment budget (§13).
-            const requested = clampInt(this.config.supersample, 1, 4, 2);
+            const requested = clampInt(
+                this.config.supersample ?? AMOLED.DEFAULT_ENGINE_CONFIG.supersample,
+                1, 4, AMOLED.DEFAULT_ENGINE_CONFIG.supersample
+            );
             // Tiny pitches need internal samples finer than screen pixels,
             // otherwise subpixels alias away entirely.
             const minForPitch = Math.ceil(
@@ -579,12 +582,27 @@
             this.internalWidth = deviceWidth * ss;
             this.internalHeight = deviceHeight * ss;
 
-            this._destroyTarget(this.sceneTarget);
-            this._destroyTarget(this.bloomATarget);
-            this._destroyTarget(this.bloomBTarget);
-            this.sceneTarget = this._createTarget(this.internalWidth, this.internalHeight);
-            this.bloomATarget = this._createTarget(deviceWidth >> 2, deviceHeight >> 2);
-            this.bloomBTarget = this._createTarget(deviceWidth >> 2, deviceHeight >> 2);
+            // Skip FBO churn when dimensions are unchanged (common for pitch
+            // tweaks, which only affect lattice uniforms).
+            const bloomW = deviceWidth >> 2;
+            const bloomH = deviceHeight >> 2;
+            const targetsUnchanged =
+                this.sceneTarget &&
+                this.bloomATarget &&
+                this.bloomBTarget &&
+                this.sceneTarget.width === this.internalWidth &&
+                this.sceneTarget.height === this.internalHeight &&
+                this.bloomATarget.width === bloomW &&
+                this.bloomATarget.height === bloomH;
+
+            if (!targetsUnchanged) {
+                this._destroyTarget(this.sceneTarget);
+                this._destroyTarget(this.bloomATarget);
+                this._destroyTarget(this.bloomBTarget);
+                this.sceneTarget = this._createTarget(this.internalWidth, this.internalHeight);
+                this.bloomATarget = this._createTarget(bloomW, bloomH);
+                this.bloomBTarget = this._createTarget(bloomW, bloomH);
+            }
 
             // Notify when the logical grid changed so consumers (e.g. the
             // media loop) can re-target instead of feeding stale sizes.
@@ -673,6 +691,10 @@
 
             const inactiveLinear = srgbChannelToLinear(clamp01(cfg.inactiveLevel));
 
+            // Defaults come from the ONE frozen table; cfg is always merged
+            // over it, so ?? only fires for explicit null/undefined.
+            const D = AMOLED.DEFAULT_ENGINE_CONFIG;
+
             // ---- Pass 1: emission at supersampled resolution -------------
             this._drawPass(this.sceneTarget, this.progEmission, () => {
                 gl.activeTexture(gl.TEXTURE0);
@@ -689,10 +711,10 @@
                     clamp01(cfg.greenMaxOutput),
                     clamp01(cfg.blueMaxOutput));
                 gl.uniform3f(this.uEmission("uSigma"),
-                    positive(cfg.redSigma, 0.45),
-                    positive(cfg.greenSigma, 0.35),
-                    positive(cfg.blueSigma, 0.55));
-                gl.uniform1f(this.uEmission("uGamma"), positive(cfg.emitterGamma, 1.8));
+                    positive(cfg.redSigma ?? D.redSigma),
+                    positive(cfg.greenSigma ?? D.greenSigma),
+                    positive(cfg.blueSigma ?? D.blueSigma));
+                gl.uniform1f(this.uEmission("uGamma"), positive(cfg.emitterGamma ?? D.emitterGamma));
                 gl.uniform1f(this.uEmission("uSpill"), clamp01(cfg.opticalSpill));
                 gl.uniform2f(this.uEmission("uDrive"),
                     clamp01(cfg.activeLevel), inactiveLinear);
@@ -703,7 +725,7 @@
             // luminance, not an absolute value — an absolute 0.70 sits above
             // almost every real emission sample and bloom never fires.
             const drivePeak = Math.min(1, clamp01(cfg.activeLevel) + inactiveLinear);
-            const gamma = positive(cfg.emitterGamma, 1.8);
+            const gamma = positive(cfg.emitterGamma ?? D.emitterGamma);
             const response = Math.pow(drivePeak, gamma);
             const peakLum =
                 0.2126 * clamp01(cfg.redMaxOutput) * response +
@@ -716,12 +738,12 @@
                 gl.uniform1i(this.uBright("uScene"), 0);
                 gl.uniform1f(this.uBright("uThreshold"),
                     clamp01(cfg.bloomThreshold) * peakLum);
-                gl.uniform1f(this.uBright("uPower"), positive(cfg.bloomPower, 2.0));
+                gl.uniform1f(this.uBright("uPower"), positive(cfg.bloomPower ?? D.bloomPower));
                 gl.uniform1f(this.uBright("uStrength"), clamp01(cfg.bloomIntensity));
             });
 
             // ---- Passes 3/4: separable blur ------------------------------
-            this._computeBlurWeights(positive(cfg.bloomRadius, 12) / 4);
+            this._computeBlurWeights(positive(cfg.bloomRadius ?? D.bloomRadius) / 4);
 
             this._drawPass(this.bloomBTarget, this.progBlur, () => {
                 gl.activeTexture(gl.TEXTURE0);
@@ -803,70 +825,37 @@
     }
 
     // ------------------------------------------------------------------
-    // Shared helpers
+    // Shared helpers — single implementations live in AMOLED.util
+    // (src/engine/util.js); local aliases keep call sites terse.
     // ------------------------------------------------------------------
 
-    function srgbChannelToLinear(c) {
-        if (c <= 0.04045) {
-            return c / 12.92;
-        }
-        return Math.pow((c + 0.055) / 1.055, 2.4);
-    }
-
-    function resolveElement(explicitElement, selector, fallback) {
-        if (explicitElement && explicitElement.nodeType === 1) {
-            return explicitElement;
-        }
-        if (selector && typeof selector === "string") {
-            const found = document.querySelector(selector);
-            if (found) return found;
-        }
-        return fallback;
-    }
+    const util = AMOLED.util;
+    const srgbChannelToLinear = util.srgbChannelToLinear;
+    const resolveElement = util.resolveElement;
+    const clampRange = util.clampRange;
+    const clampInt = util.clampInt;
+    const clamp01 = util.clamp01;
+    const positive = util.positive;
 
     function resolvePixelScale(config, viewportWidth, viewportHeight) {
         if (!config.autoPixelScale) {
             return clampRange(
                 Number(config.pixelScale),
-                Number(config.minPixelScale) || 3.5,
-                Number(config.maxPixelScale) || 20,
+                Number(config.minPixelScale),
+                Number(config.maxPixelScale),
                 6
             );
         }
-        const targetW = Math.max(1, Number(config.targetLogicalWidth) || 220);
-        const targetH = Math.max(1, Number(config.targetLogicalHeight) || 132);
+        const targetW = Math.max(1, Number(config.targetLogicalWidth));
+        const targetH = Math.max(1, Number(config.targetLogicalHeight));
         const auto = Math.sqrt(
             (viewportWidth * viewportHeight) / Math.max(1, targetW * targetH)
         );
         return clampRange(auto,
-            Number(config.minPixelScale) || 3.5,
-            Number(config.maxPixelScale) || 20,
+            Number(config.minPixelScale),
+            Number(config.maxPixelScale),
             6
         );
-    }
-
-    function clampRange(value, min, max, fallback) {
-        const n = Number(value);
-        if (!Number.isFinite(n)) return fallback;
-        return Math.min(Math.max(n, min), max);
-    }
-
-    function clampInt(value, min, max, fallback) {
-        const n = Math.round(Number(value));
-        if (!Number.isFinite(n)) return fallback;
-        return Math.min(Math.max(n, min), max);
-    }
-
-    function clamp01(v) {
-        const n = Number(v);
-        if (!Number.isFinite(n) || n <= 0) return 0;
-        if (n >= 1) return 1;
-        return n;
-    }
-
-    function positive(v, fallback) {
-        const n = Number(v);
-        return Number.isFinite(n) && n > 0 ? n : fallback;
     }
 
     AMOLED.GPUPentileSimulator = GPUPentileSimulator;

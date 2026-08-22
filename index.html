@@ -71,8 +71,8 @@
                 <div class="row">
                     <label for="supersample-select">Supersample</label>
                     <select id="supersample-select">
-                        <option value="1">1x (fast)</option>
-                        <option value="2" selected>2x (recommended)</option>
+                        <option value="1" selected>1x (fast)</option>
+                        <option value="2">2x (recommended)</option>
                         <option value="3">3x</option>
                         <option value="4">4x (heavy)</option>
                     </select>
@@ -167,13 +167,14 @@
     </div>
 
     <script src="src/gifuct.js"></script>
-    <script src="src/config.js"></script>
-    <script src="src/frame-buffer.js"></script>
-    <script src="src/diamond-pentile-geometry.js"></script>
-    <script src="src/amoled-renderer.js"></script>
-    <script src="src/amoled-gpu-renderer.js"></script>
+    <script src="src/engine/util.js"></script>
+    <script src="src/engine/config.js"></script>
+    <script src="src/engine/frame-buffer.js"></script>
+    <script src="src/engine/diamond-pentile-geometry.js"></script>
+    <script src="src/engine/amoled-renderer.js"></script>
+    <script src="src/engine/amoled-gpu-renderer.js"></script>
     <script src="src/patterns.js"></script>
     <script src="src/media-loader.js"></script>
-    <script src="src/app.js"></script>
+    <script type="module" src="src/app.js"></script>
 </body>
 </html>

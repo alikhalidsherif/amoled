@@ -3,7 +3,8 @@
 "use strict";
 
 globalThis.window = globalThis;
-require("../src/diamond-pentile-geometry.js");
+require("../src/engine/util.js");
+require("../src/engine/diamond-pentile-geometry.js");
 const AMOLED = globalThis.AMOLED;
 
 // Shader-side lattice model, mirroring FRAG_EMISSION exactly.

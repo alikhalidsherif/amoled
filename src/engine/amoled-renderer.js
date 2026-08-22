@@ -135,8 +135,10 @@
                 this._bloomCanvas = global.document.createElement("canvas");
                 this._bloomCtx = this._bloomCanvas.getContext("2d");
             }
-            this._bloomCanvas.width = bw;
-            this._bloomCanvas.height = bh;
+            if (this._bloomCanvas.width !== bw || this._bloomCanvas.height !== bh) {
+                this._bloomCanvas.width = bw;
+                this._bloomCanvas.height = bh;
+            }
 
             // Notify when the logical grid changed so consumers (e.g. the
             // media loop) can re-target instead of feeding stale sizes.
@@ -386,37 +388,14 @@
         return n | 0;
     }
 
-    function clamp01(value) {
-        var n = Number(value);
-        if (!Number.isFinite(n) || n <= 0) return 0;
-        if (n >= 1) return 1;
-        return n;
-    }
-
-    function resolveElement(explicitElement, selector, fallback) {
-        if (explicitElement && explicitElement.nodeType === 1) {
-            return explicitElement;
-        }
-        if (selector && typeof selector === "string") {
-            var found = document.querySelector(selector);
-            if (found) return found;
-        }
-        return fallback;
-    }
+    // Shared helpers — single implementations live in AMOLED.util
+    // (src/engine/util.js); local aliases keep call sites terse.
+    var util = AMOLED.util;
+    var clamp01 = util.clamp01;
+    var resolveElement = util.resolveElement;
 
     function clampScale(value, min, max) {
-        var fallback = 6;
-        var n = Number(value);
-        var lo = Number.isFinite(min) ? Number(min) : 2;
-        var hi = Number.isFinite(max) ? Number(max) : 20;
-
-        if (!Number.isFinite(n)) {
-            return Math.max(lo, Math.min(hi, fallback));
-        }
-
-        if (n < lo) return lo;
-        if (n > hi) return hi;
-        return n;
+        return util.clampRange(value, Number(min) || 2, Number(max) || 20, 6);
     }
 
     function quantizeScale(value, step) {

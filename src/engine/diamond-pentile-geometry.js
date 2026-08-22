@@ -154,13 +154,9 @@
         }
     }
 
-    function clamp01(value) {
-        const n = Number(value);
-        if (!Number.isFinite(n)) return 0;
-        if (n < 0) return 0;
-        if (n > 1) return 1;
-        return n;
-    }
+    // Shared helpers — single implementations live in AMOLED.util
+    // (src/engine/util.js).
+    const clamp01 = AMOLED.util.clamp01;
 
     AMOLED.DiamondPentileGeometry = DiamondPentileGeometry;
 })(window);

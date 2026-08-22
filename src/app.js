@@ -1,7 +1,7 @@
-(function bootstrapAmoledClient(global) {
-    "use strict";
+import { createQualityGovernor } from "./player/quality.js";
 
-    const AMOLED = global.AMOLED || (global.AMOLED = {});
+{
+    const AMOLED = window.AMOLED || (window.AMOLED = {});
 
     const AMOLEDRenderer = AMOLED.AMOLEDRenderer;
     const GPUPentileSimulator = AMOLED.GPUPentileSimulator;
@@ -142,108 +142,13 @@
     const ENGINE_CONFIG = AMOLED.DEFAULT_ENGINE_CONFIG;
 
     // ------------------------------------------------------------------
-    // Adaptive quality governor
-    //
-    // Watches real render cost against the requested FPS and walks a
-    // quality ladder down (when the device can't keep up) or back up
-    // (when there's headroom). Weak devices also start on a light tier.
+    // Adaptive quality governor — implementation lives in
+    // src/player/quality.js (ES module). Only quality variables are ever
+    // touched; artistic/display params are never written (PLAN.md Rule 3).
+    // TODO(Phase 8): internals replaced by quality negotiation.
     // ------------------------------------------------------------------
     let perfLabel = "ok";
-
-    function createAdaptiveQuality() {
-        const original = {
-            supersample: sim.config.supersample,
-            maxInternalPixels: sim.config.maxInternalPixels,
-            maxDevicePixelRatio: sim.config.maxDevicePixelRatio
-        };
-
-        // Cumulative downgrade ladder; step 0 = user's own settings.
-        const LADDER = [
-            null,
-            { supersample: 1 },
-            { maxInternalPixels: Math.min(original.maxInternalPixels, 12582912) },
-            { maxDevicePixelRatio: 1 },
-            { maxInternalPixels: 5242880, maxDevicePixelRatio: 1 }
-        ];
-
-        const state = { step: 0, strikes: 0, goodStreak: 0, cooldownUntil: 0 };
-
-        function applyStep(step) {
-            if (step === 0) {
-                sim.updateConfig({
-                    supersample: original.supersample,
-                    maxInternalPixels: original.maxInternalPixels,
-                    maxDevicePixelRatio: original.maxDevicePixelRatio
-                });
-            } else {
-                sim.updateConfig(LADDER[step]);
-            }
-            if (ui.supersampleSelect) {
-                ui.supersampleSelect.value = String(sim.config.supersample);
-            }
-        }
-
-        let frames = 0;
-        let lastTick = performance.now();
-        function tickFrame() {
-            frames++;
-            requestAnimationFrame(tickFrame);
-        }
-        requestAnimationFrame(tickFrame);
-
-        setInterval(function () {
-            if (document.hidden || currentMode !== "media") return;
-
-            const now = performance.now();
-            const elapsed = now - lastTick;
-            lastTick = now;
-
-            const targetFps = Number(ui.fpsInput.value) || 24;
-            const budgetMs = 1000 / targetFps;
-            const cost = typeof sim.getRenderCost === "function"
-                ? sim.getRenderCost()
-                : 0;
-            const measuredFps = frames * 1000 / Math.max(1, elapsed);
-            frames = 0;
-
-            // Ignore windows where nothing rendered (cost never accumulates).
-            if (!cost) return;
-
-            const overloaded =
-                cost > budgetMs * 0.85 ||
-                (measuredFps < targetFps * 0.7 && state.step > 0);
-
-            if (overloaded) {
-                state.strikes++;
-                state.goodStreak = 0;
-            } else {
-                state.strikes = 0;
-                state.goodStreak =
-                    state.step > 0 && cost < budgetMs * 0.4 &&
-                    measuredFps >= targetFps * 0.95
-                        ? state.goodStreak + 1
-                        : 0;
-            }
-
-            if (state.strikes >= 3 && now > state.cooldownUntil) {
-                if (state.step < LADDER.length - 1) {
-                    state.step++;
-                    applyStep(state.step);
-                    perfLabel = "auto-q" + state.step;
-                    updateStatus("perf-reduced");
-                }
-                state.strikes = 0;
-                state.cooldownUntil = now + 5000;
-            } else if (state.goodStreak >= 8 && now > state.cooldownUntil) {
-                state.step--;
-                applyStep(state.step);
-                state.goodStreak = 0;
-                state.cooldownUntil = now + 10000;
-                perfLabel = state.step === 0 ? "ok" : "auto-q" + state.step;
-                updateStatus("perf-restored");
-            }
-        }, 1500);
-    }
+    let qualityGovernor = null;
 
     function updateStatus(label) {
         if (!ui.status) return;
@@ -542,13 +447,13 @@
             }
         });
 
-        global.addEventListener("resize", function () {
+        window.addEventListener("resize", function () {
             syncMediaTarget();
             updateStatus("resize");
         });
 
         // Reload correct orientation test image on orientation change
-        global.addEventListener("orientationchange", function () {
+        window.addEventListener("orientationchange", function () {
             if (currentMode === "media" && loader._element) {
                 const newSrc = getDefaultImage();
                 if (loader._blobUrl !== newSrc && !loader._playing) {
@@ -594,13 +499,28 @@
         setScaleMode("auto");
         loadDefaultImage();
         bindUiEvents();
-        createAdaptiveQuality();
+        qualityGovernor = createQualityGovernor(sim, {
+            getTargetFps: function () {
+                return Number(ui.fpsInput.value) || 24;
+            },
+            isActive: function () {
+                return currentMode === "media" && loader.isPlaying();
+            },
+            onStateChange: function (labelText) {
+                perfLabel = labelText;
+                if (ui.supersampleSelect) {
+                    ui.supersampleSelect.value =
+                        String(sim.config.supersample);
+                }
+                updateStatus("perf");
+            }
+        });
 
         // Open panel by default
         togglePanel();
     }
 
-    global.amoledClient = {
+    window.amoledClient = {
         loadFile: handleFileUpload,
         loadUrl: handleUrlLoad,
         loadPattern: testRender,
@@ -610,7 +530,7 @@
     };
 
     // Debug/testing hook (not part of the public API).
-    global.__sim = sim;
+    window.__sim = sim;
 
     init();
-})(window);
+}

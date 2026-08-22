@@ -64,6 +64,10 @@
             this._releaseBlobUrl();
             this._gifFrames = null;
 
+            // Invalidate any background GIF decoding from a previous load
+            // immediately — its chunks must not touch our fresh state.
+            this._gifLoadGen = (this._gifLoadGen || 0) + 1;
+
             if (!source) throw new Error("No source provided.");
 
             let url;
@@ -311,7 +315,12 @@
             return this._type === "gif" || this._type === "video";
         }
 
+        isPlaying() {
+            return Boolean(this._playing);
+        }
+
         destroy() {
+            this._gifLoadGen = (this._gifLoadGen || 0) + 1; // abort background decode
             this.stop();
             this._removeElement();
             this._releaseBlobUrl();
@@ -387,19 +396,27 @@
             }
 
             const parsed = Gifuct.parseGIF(buffer);
-            const frames = Gifuct.decompressFrames(parsed, true);
+            const imageFrames = parsed.frames.filter(function (f) { return f.image; });
 
-            if (!frames || frames.length === 0) {
+            if (!imageFrames.length) {
                 throw new Error("GIF has no decodable frames.");
             }
 
-            this._gifFrames = frames;
+            // Generation guard: a newer load()/destroy() supersedes any
+            // background decoding kicked off here. load()/destroy() already
+            // bumped the generation; ours must match to survive.
+            const gen = this._gifLoadGen = this._gifLoadGen || 1;
+
+            // Decode ONLY the first frame synchronously (~10ms) so playback
+            // starts immediately. Full-frame LZW+palette work for large GIFs
+            // can take seconds and would otherwise block boot and playback.
+            const firstFrame = Gifuct.decompressFrame(imageFrames[0], parsed.gct, true);
+            this._gifFrames = [firstFrame];
             this._gifFrameIndex = 0;
             this._gifDisposal = null;
             this._gifImageData = null;
 
             // Get native dimensions from first frame
-            const firstFrame = frames[0];
             this.width = firstFrame.dims.width;
             this.height = firstFrame.dims.height;
 
@@ -417,6 +434,31 @@
 
             this._type = "gif";
             this._removeElement();
+
+            this._decodeRemainingGifFrames(Gifuct, parsed, imageFrames, gen);
+        }
+
+        /**
+         * Streams the remaining GIF frames through small event-loop-friendly
+         * chunks. Animation loops over whatever is decoded so far; frames
+         * appear progressively until complete. Aborted silently when a newer
+         * load replaces this one.
+         */
+        _decodeRemainingGifFrames(Gifuct, parsed, imageFrames, gen) {
+            const CHUNK = 2;
+            let next = 1;
+            const step = () => {
+                if (gen !== this._gifLoadGen) return;
+                let n = CHUNK;
+                while (n-- > 0 && next < imageFrames.length) {
+                    const frame = Gifuct.decompressFrame(imageFrames[next++], parsed.gct, true);
+                    if (frame) this._gifFrames.push(frame);
+                }
+                if (next < imageFrames.length) {
+                    setTimeout(step, 0);
+                }
+            };
+            setTimeout(step, 0);
         }
 
         async _loadVideo(url) {

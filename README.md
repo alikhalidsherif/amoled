@@ -52,10 +52,10 @@ Open `index.html` in a browser.
 Grab these files for a standalone PenTile display element:
 
 ```
-src/diamond-pentile-geometry.js  — Zero-dependency lattice builder
-src/frame-buffer.js             — Zero-dependency pixel buffer
-src/amoled-gpu-renderer.js      — WebGL2 physical-emitter simulator
-src/amoled-renderer.js          — Canvas 2D renderer (fallback)
+src/engine/diamond-pentile-geometry.js  — Zero-dependency lattice builder
+src/engine/frame-buffer.js             — Zero-dependency pixel buffer
+src/engine/amoled-gpu-renderer.js      — WebGL2 physical-emitter simulator
+src/engine/amoled-renderer.js          — Canvas 2D renderer (fallback)
 ```
 
 ```html
@@ -140,17 +140,22 @@ AMOLED.DEFAULT_ENGINE_CONFIG = {
 
 ```
 src/
-├── config.js                 Engine defaults (incl. physics parameters)
-├── frame-buffer.js           RGB pixel buffer
-├── diamond-pentile-geometry.js  Subpixel lattice builder
-├── amoled-gpu-renderer.js    WebGL2 physical-emitter pipeline
-├── amoled-renderer.js        Canvas 2D fallback renderer
-├── media-loader.js           GIF/image/video decoder
-├── patterns.js               Built-in test pattern
-├── gifuct.js                 GIF decoder library (bundled)
-└── app.js                    Demo page wiring
+├── engine/
+│   ├── util.js                 Shared engine helpers (single implementations)
+│   ├── config.js               Engine defaults (incl. physics parameters)
+│   ├── frame-buffer.js         RGB pixel buffer
+│   ├── diamond-pentile-geometry.js  Subpixel lattice builder
+│   ├── amoled-gpu-renderer.js  WebGL2 physical-emitter pipeline
+│   └── amoled-renderer.js      Canvas 2D fallback renderer
+├── player/
+│   └── quality.js              Adaptive quality governor (ES module)
+├── media-loader.js             GIF/image/video decoder
+├── patterns.js                 Built-in test pattern
+├── gifuct.js                   GIF decoder library (bundled)
+└── app.js                      Demo page wiring (ES module bootstrap)
 tests/
-└── lattice-parity.js         Verifies shader lattice == CPU geometry
+├── lattice-parity.js           Verifies shader lattice == CPU geometry
+└── browser/                    Headless Chrome smoke/regression harnesses
 ```
 
 ## How It Works
