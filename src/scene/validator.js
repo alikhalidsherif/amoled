@@ -5,7 +5,8 @@
 // classes, and produces the frozen normalized SceneDefinition.
 
 import { DISPLAY_DEFAULTS, QUALITY_DEFAULTS, ANIMATABLE_PREFIXES, STRUCTURAL_PREFIXES } from "./defaults.js";
-import { expressionReferencesTime } from "./expression.js";
+import { expressionReferencesTime, compileExpression } from "./expression.js";
+import { treeReferencesTime, expressionReferencesSpace } from "./evalue.js";
 
 export class AmoError extends Error {
     constructor(path, message) {
@@ -17,11 +18,10 @@ export class AmoError extends Error {
 
 const KNOWN_TOP_LEVEL = new Set(["amo", "meta", "display", "quality", "assets", "scene", "timeline"]);
 const KNOWN_DISPLAY = new Set(["pitch", "gamma", "brightness", "spill", "emitters", "bloom", "pentile"]);
-const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "image", "gif", "video", "pattern", "expression", "composite"]);
+const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "expression", "composite"]);
 const KNOWN_FIT = new Set(["cover", "contain", "stretch"]);
 const KNOWN_DIRECTIONS = new Set(["vertical", "horizontal", "diagonal", "radial"]);
 const KNOWN_EASINGS = new Set(["linear", "smoothstep", "easeIn", "easeOut"]);
-const STATIC_TYPES = new Set(["color", "gradient", "image", "pattern"]);
 
 function isFiniteNumber(v) {
     return typeof v === "number" && Number.isFinite(v);
@@ -57,7 +57,50 @@ function num(raw, path, min, max, fallback, warnings, clampable = true) {
     return raw;
 }
 
-// Accepts "#rgb", "#rrggbb", or {r,g,b} floats 0-1. Normalizes to {r,g,b}.
+// Numeric E-value slot (PLAN-CREATIVE.md §A0): finite number (clamped like
+// num()) OR an expression string (validated to compile; range-clamped at
+// evaluation time by the rasterizer/compositor).
+function evalueNum(raw, path, min, max, fallback, warnings) {
+    if (raw === undefined || raw === null) return fallback;
+    if (typeof raw === "string") {
+        try {
+            compileExpression(raw);
+        } catch (e) {
+            fail(path, `invalid expression: ${e.message}`);
+        }
+        return raw;
+    }
+    return num(raw, path, min, max, fallback, warnings);
+}
+
+// Accepts "#rgb"/"#rrggbb", or {r,g,b} where each channel is a finite number
+// 0-1 OR an expression string (E-value color slot, PLAN-CREATIVE.md §A0).
+// Hex strings are constants; channel expressions are validated to compile
+// and preserved verbatim for the rasterizer.
+export function normalizeColorE(raw, path, warnings) {
+    if (raw === undefined || raw === null) return null;
+    if (typeof raw === "string") return normalizeColor(raw, path);
+    if (typeof raw === "object" && !Array.isArray(raw)) {
+        const out = {};
+        for (const c of ["r", "g", "b"]) {
+            const v = raw[c];
+            if (typeof v === "string") {
+                try {
+                    compileExpression(v);
+                } catch (e) {
+                    fail(`${path}.${c}`, `invalid channel expression: ${e.message}`);
+                }
+                out[c] = v;
+            } else {
+                out[c] = num(v ?? 0, `${path}.${c}`, 0, 1, 0, warnings);
+            }
+        }
+        return Object.freeze(out);
+    }
+    fail(path, `expected hex color or {r,g,b}, got ${typeof raw}`);
+}
+
+// Accepts "#rgb"/"#rrggbb" hex only (constant color).
 export function normalizeColor(raw, path) {
     if (raw === undefined || raw === null) return null;
     if (typeof raw === "string") {
@@ -113,6 +156,7 @@ function isStructural(propertyPath) {
 const KNOWN_FIELDS_FOR_TYPE = {
     color: ["type", "color"],
     gradient: ["type", "from", "to", "direction"],
+    livingGradient: ["type", "stops", "direction", "wobble", "seed"],
     image: ["type", "asset", "fit"],
     gif: ["type", "asset", "fit"],
     video: ["type", "asset", "fit", "muted"],
@@ -122,7 +166,7 @@ const KNOWN_FIELDS_FOR_TYPE = {
 };
 
 // Layer-only compositing fields.
-const KNOWN_LAYER_FIELDS = ["opacity", "blend", "rect", "offset", "scale"];
+const KNOWN_LAYER_FIELDS = ["opacity", "blend", "rect", "offset", "scale", "rotation"];
 const KNOWN_BLENDS = new Set(["normal", "add", "multiply", "screen", "overlay"]);
 
 /**
@@ -145,10 +189,41 @@ function normalizeSceneContent(s, path, warnings, assets) {
     const scene = { type: s.type };
 
     if (s.type === "color") {
-        scene.color = normalizeColor(s.color ?? "#000000", `${path}.color`) ?? { r: 0, g: 0, b: 0 };
+        scene.color = normalizeColorE(s.color ?? "#000000", `${path}.color`, warnings) ?? { r: 0, g: 0, b: 0 };
     } else if (s.type === "gradient") {
-        scene.from = normalizeColor(s.from ?? "#000000", `${path}.from`) ?? { r: 0, g: 0, b: 0 };
-        scene.to = normalizeColor(s.to ?? "#ffffff", `${path}.to`) ?? { r: 1, g: 1, b: 1 };
+        scene.from = normalizeColorE(s.from ?? "#000000", `${path}.from`, warnings) ?? { r: 0, g: 0, b: 0 };
+        scene.to = normalizeColorE(s.to ?? "#ffffff", `${path}.to`, warnings) ?? { r: 1, g: 1, b: 1 };
+        if (s.direction !== undefined && !KNOWN_DIRECTIONS.has(s.direction)) {
+            fail(`${path}.direction`, `expected one of ${[...KNOWN_DIRECTIONS].join("|")}, got "${s.direction}"`);
+        }
+        scene.direction = s.direction || "vertical";
+    } else if (s.type === "livingGradient") {
+        if (!Array.isArray(s.stops) || s.stops.length < 2) {
+            fail(`${path}.stops`, "livingGradient needs at least 2 stops");
+        }
+        let lastAt = -Infinity;
+        scene.stops = s.stops.map((st, i) => {
+            const sp = `${path}.stops[${i}]`;
+            if (!st || typeof st !== "object" || Array.isArray(st)) fail(sp, "expected {at, color}");
+            const at = num(st.at, `${sp}.at`, 0, 1, i / (s.stops.length - 1), warnings);
+            if (at < lastAt) warnings.push(`${sp}.at: stops are unsorted; they will be sorted automatically`);
+            lastAt = at;
+            const color = normalizeColorE(st.color, `${sp}.color`, warnings) ?? { r: 0, g: 0, b: 0 };
+            return Object.freeze({ at, color });
+        });
+        if (s.wobble !== undefined && s.wobble !== null) {
+            if (typeof s.wobble === "string") {
+                try {
+                    compileExpression(s.wobble);
+                } catch (e) {
+                    fail(`${path}.wobble`, `invalid expression: ${e.message}`);
+                }
+                scene.wobble = s.wobble;
+            } else {
+                scene.wobble = num(s.wobble, `${path}.wobble`, -1, 1, 0, warnings);
+            }
+        }
+        if (s.seed !== undefined && isFiniteNumber(s.seed)) scene.seed = s.seed;
         if (s.direction !== undefined && !KNOWN_DIRECTIONS.has(s.direction)) {
             fail(`${path}.direction`, `expected one of ${[...KNOWN_DIRECTIONS].join("|")}, got "${s.direction}"`);
         }
@@ -186,9 +261,10 @@ function normalizeSceneContent(s, path, warnings, assets) {
 function normalizeLayer(l, path, warnings, assets) {
     if (!l || typeof l !== "object") fail(path, "layer must be an object");
 
-    // Compositing fields first (warnings reference layer path).
+    // Compositing fields first (warnings reference layer path). All numeric
+    // slots are E-values: number or expression string (§A0).
     const layerMeta = {};
-    layerMeta.opacity = num(l.opacity, `${path}.opacity`, 0, 1, 1, warnings);
+    layerMeta.opacity = evalueNum(l.opacity, `${path}.opacity`, 0, 1, 1, warnings);
     if (l.blend !== undefined && !KNOWN_BLENDS.has(l.blend)) {
         fail(`${path}.blend`, `expected one of ${[...KNOWN_BLENDS].join("|")}, got "${l.blend}"`);
     }
@@ -198,10 +274,10 @@ function normalizeLayer(l, path, warnings, assets) {
     if (l.rect !== undefined && l.rect !== null) {
         if (typeof l.rect !== "object") fail(`${path}.rect`, "expected {x,y,w,h}");
         rect = Object.freeze({
-            x: num(l.rect.x, `${path}.rect.x`, -1, 1, 0, warnings),
-            y: num(l.rect.y, `${path}.rect.y`, -1, 1, 0, warnings),
-            w: num(l.rect.w, `${path}.rect.w`, 0.01, 2, 1, warnings),
-            h: num(l.rect.h, `${path}.rect.h`, 0.01, 2, 1, warnings)
+            x: evalueNum(l.rect.x, `${path}.rect.x`, -1, 1, 0, warnings),
+            y: evalueNum(l.rect.y, `${path}.rect.y`, -1, 1, 0, warnings),
+            w: evalueNum(l.rect.w, `${path}.rect.w`, 0.01, 2, 1, warnings),
+            h: evalueNum(l.rect.h, `${path}.rect.h`, 0.01, 2, 1, warnings)
         });
     }
     if (rect) layerMeta.rect = rect;
@@ -210,13 +286,19 @@ function normalizeLayer(l, path, warnings, assets) {
     if (l.offset !== undefined && l.offset !== null) {
         if (typeof l.offset !== "object") fail(`${path}.offset`, "expected {x,y}");
         offset = Object.freeze({
-            x: num(l.offset.x, `${path}.offset.x`, -1, 1, 0, warnings),
-            y: num(l.offset.y, `${path}.offset.y`, -1, 1, 0, warnings)
+            x: evalueNum(l.offset.x, `${path}.offset.x`, -1, 1, 0, warnings),
+            y: evalueNum(l.offset.y, `${path}.offset.y`, -1, 1, 0, warnings)
         });
     }
     if (offset) layerMeta.offset = offset;
     if (l.scale !== undefined && l.scale !== null) {
-        layerMeta.scale = num(l.scale, `${path}.scale`, 0.01, 8, 1, warnings);
+        layerMeta.scale = evalueNum(l.scale, `${path}.scale`, 0.01, 8, 1, warnings);
+    }
+    if (l.rotation !== undefined && l.rotation !== null) {
+        layerMeta.rotation = evalueNum(l.rotation, `${path}.rotation`, -64, 64, 0, warnings);
+        if (typeof l.rotation === "string" && expressionReferencesSpace(l.rotation)) {
+            warnings.push(`${path}.rotation: layer transforms do not vary per-pixel; x/y/u/v are ignored here`);
+        }
     }
 
     const content = normalizeSceneContent(l, path, warnings, assets);
@@ -226,20 +308,21 @@ function normalizeLayer(l, path, warnings, assets) {
     return Object.freeze(merged);
 }
 
-/** Static detection for any content object (§5.8 extended to layers). */
+/**
+ * Static detection (PLAN-CREATIVE.md §A4 — centralized rule).
+ * A scene is STATIC iff:
+ *  - no collected expression anywhere in the scene tree references t/frame,
+ *  - no timeline keyframes exist, AND
+ *  - the type is not inherently animated (gif/video).
+ */
 function sceneIsStatic(scene) {
-    if (scene.type === "composite") {
-        return scene.layers.every(l => sceneIsStatic(l));
+    switch (scene.type) {
+        case "gif":
+        case "video":
+            return false;
+        default:
+            return !treeReferencesTime(scene);
     }
-    if (!STATIC_TYPES.has(scene.type)) {
-        if (scene.type === "expression") {
-            return !(expressionReferencesTime(scene.r) ||
-                     expressionReferencesTime(scene.g) ||
-                     expressionReferencesTime(scene.b));
-        }
-        return false;
-    }
-    return true;
 }
 
 export function validateAndNormalize(raw, baseUrl) {

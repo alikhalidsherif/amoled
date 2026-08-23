@@ -3,6 +3,7 @@
 // caller supplies a reusable output buffer.
 
 import { compileExpression } from "./expression.js";
+import { compileColorSlot, resolveNamed, makeEnv } from "./evalue.js";
 
 // Compiled expression programs, cached per scene object (WeakMap: frozen
 // scene objects are valid keys; GC-friendly).
@@ -46,37 +47,132 @@ function writeColor(out, r, g, b) {
     return out;
 }
 
-function rasterizeGradient(scene, w, h, out) {
-    const from = scene.from;
-    const to = scene.to;
+function rasterizeGradient(scene, w, h, t, definition, out) {
+    const from = compileColorSlot(scene.from);
+    const to = compileColorSlot(scene.to);
     const dir = scene.direction || "vertical";
-    const dr = to.r - from.r;
-    const dg = to.g - from.g;
-    const db = to.b - from.b;
 
+    if (from.allConst && to.allConst) {
+        // Fast path: both stops constant.
+        return rasterizeGradientConst(from.r, from.g, from.b, to.r, to.g, to.b, dir, w, h, out);
+    }
+
+    // Animated path: evaluate channel expressions per pixel.
+    const env = sceneEnv(definition, t, w, h, scene.seed);
     let i = 0;
     for (let y = 0; y < h; y++) {
+        env.y = y;
+        env.v = h > 1 ? y / (h - 1) : 0;
         for (let x = 0; x < w; x++) {
-            let t;
-            switch (dir) {
-                case "horizontal":
-                    t = x / Math.max(1, w - 1);
-                    break;
-                case "diagonal":
-                    t = (x / Math.max(1, w - 1) + y / Math.max(1, h - 1)) * 0.5;
-                    break;
-                case "radial": {
-                    const cx = (x / Math.max(1, w - 1)) * 2 - 1;
-                    const cy = (y / Math.max(1, h - 1)) * 2 - 1;
-                    t = Math.min(1, Math.sqrt(cx * cx + cy * cy) * 0.7071);
-                    break;
+            env.x = x;
+            env.u = w > 1 ? x / (w - 1) : 0;
+            const tt = axisCoord(dir, env.u, env.v);
+            const a = from.eval(env.x, env.y, env);
+            const b = to.eval(env.x, env.y, env);
+            out[i++] = Math.round((a.r + (b.r - a.r) * tt) * 255);
+            out[i++] = Math.round((a.g + (b.g - a.g) * tt) * 255);
+            out[i++] = Math.round((a.b + (b.b - a.b) * tt) * 255);
+        }
+    }
+    return out;
+}
+
+function rasterizeGradientConst(fr, fg, fb, tr, tg, tb, dir, w, h, out) {
+    const dr = tr - fr, dg = tg - fg, db = tb - fb;
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+        const v = h > 1 ? y / (h - 1) : 0;
+        for (let x = 0; x < w; x++) {
+            const u = w > 1 ? x / (w - 1) : 0;
+            const tt = axisCoord(dir, u, v);
+            out[i++] = Math.round((fr + dr * tt) * 255);
+            out[i++] = Math.round((fg + dg * tt) * 255);
+            out[i++] = Math.round((fb + db * tt) * 255);
+        }
+    }
+    return out;
+}
+
+/** Normalized [0,1] coordinate along the gradient direction. */
+function axisCoord(dir, u, v) {
+    switch (dir) {
+        case "horizontal": return u;
+        case "diagonal": return (u + v) * 0.5;
+        case "radial": {
+            const cx = u * 2 - 1, cy = v * 2 - 1;
+            return Math.min(1, Math.sqrt(cx * cx + cy * cy) * 0.7071);
+        }
+        default: return v; // vertical
+    }
+}
+
+// ------------------------------------------------------------------
+// livingGradient — multi-stop animated gradient with wobble
+// ------------------------------------------------------------------
+
+const livingCache = new WeakMap();
+
+function getLivingProgram(scene) {
+    let prog = livingCache.get(scene);
+    if (!prog) {
+        const stops = [...scene.stops]
+            .sort((a, b) => a.at - b.at)
+            .map(s => ({ at: s.at, color: compileColorSlot(s.color) }));
+        prog = { stops, dir: scene.direction || "vertical" };
+        livingCache.set(scene, prog);
+    }
+    return prog;
+}
+
+function rasterizeLivingGradient(scene, w, h, t, definition, out) {
+    const prog = getLivingProgram(scene);
+    const env = sceneEnv(definition, t, w, h, scene.seed);
+    const ampSlot = typeof scene.wobble === "string"
+        ? compileExpression(scene.wobble).eval
+        : null;
+    const ampConst = typeof scene.wobble === "number" ? scene.wobble : 0;
+
+    const stops = prog.stops;
+    const n = stops.length;
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+        env.y = y;
+        env.v = h > 1 ? y / (h - 1) : 0;
+        for (let x = 0; x < w; x++) {
+            env.x = x;
+            env.u = w > 1 ? x / (w - 1) : 0;
+
+            let tt = axisCoord(prog.dir, env.u, env.v);
+            if (ampSlot !== null) {
+                const amp = ampSlot(env.x, env.y, env);
+                if (amp !== 0) {
+                    tt += amp * Math.sin(tt * 6.28318 + env.t * 1.5);
                 }
-                default: // vertical
-                    t = y / Math.max(1, h - 1);
+            } else if (ampConst !== 0) {
+                tt += ampConst * Math.sin(tt * 6.28318 + env.t * 1.5);
             }
-            out[i++] = Math.round((from.r + dr * t) * 255);
-            out[i++] = Math.round((from.g + dg * t) * 255);
-            out[i++] = Math.round((from.b + db * t) * 255);
+            if (tt < 0) tt = 0; else if (tt > 1) tt = 1;
+
+            // Piecewise-linear stop interpolation.
+            let r, g, b;
+            if (tt <= stops[0].at) {
+                ({ r, g, b } = stops[0].color.eval(env.x, env.y, env));
+            } else if (tt >= stops[n - 1].at) {
+                ({ r, g, b } = stops[n - 1].color.eval(env.x, env.y, env));
+            } else {
+                let k = 1;
+                while (k < n && stops[k].at < tt) k++;
+                const A = stops[k - 1], B = stops[k];
+                const f = B.at === A.at ? 0 : (tt - A.at) / (B.at - A.at);
+                const ca = A.color.eval(env.x, env.y, env);
+                const cb = B.color.eval(env.x, env.y, env);
+                r = ca.r + (cb.r - ca.r) * f;
+                g = ca.g + (cb.g - ca.g) * f;
+                b = ca.b + (cb.b - ca.b) * f;
+            }
+            out[i++] = Math.round(r * 255);
+            out[i++] = Math.round(g * 255);
+            out[i++] = Math.round(b * 255);
         }
     }
     return out;
@@ -158,6 +254,13 @@ function rasterizeImage(scene, w, h, assets, out) {
     return out;
 }
 
+/** Shared per-frame env for pixel-level E-value evaluation. */
+function sceneEnv(definition, t, w, h, seed) {
+    const q = definition && definition.quality ? definition.quality : {};
+    const tl = definition && definition.timeline ? definition.timeline : {};
+    return makeEnv(t, w, h, q.fps, tl.duration, seed);
+}
+
 /**
  * @param {object} definition - normalized SceneDefinition.
  * @param {number} t - timeline time in seconds.
@@ -168,7 +271,7 @@ function rasterizeImage(scene, w, h, assets, out) {
  */
 export function rasterize(definition, t, size, assets, out) {
     if (definition.scene.type === "composite") {
-        return compositeLayers(definition.scene.layers, t, size, assets, out);
+        return compositeLayers(definition.scene.layers, definition, t, size, assets, out);
     }
     return rasterizeScene(definition.scene, definition, t, size, assets, out);
 }
@@ -187,14 +290,34 @@ export function rasterizeScene(scene, definition, t, size, assets, out) {
 
     switch (scene.type) {
         case "color": {
-            const c = scene.color;
-            return writeColor(out,
-                Math.round(c.r * 255),
-                Math.round(c.g * 255),
-                Math.round(c.b * 255));
+            const c = compileColorSlot(scene.color);
+            if (c.allConst) {
+                return writeColor(out,
+                    Math.round(c.r * 255),
+                    Math.round(c.g * 255),
+                    Math.round(c.b * 255));
+            }
+            // Animated color: evaluate channel expressions per pixel.
+            const env = sceneEnv(definition, t, w, h, scene.seed);
+            let k = 0;
+            for (let y = 0; y < h; y++) {
+                env.y = y;
+                env.v = h > 1 ? y / (h - 1) : 0;
+                for (let x = 0; x < w; x++) {
+                    env.x = x;
+                    env.u = w > 1 ? x / (w - 1) : 0;
+                    const v = c.eval(env.x, env.y, env);
+                    out[k++] = Math.round(v.r * 255);
+                    out[k++] = Math.round(v.g * 255);
+                    out[k++] = Math.round(v.b * 255);
+                }
+            }
+            return out;
         }
         case "gradient":
-            return rasterizeGradient(scene, w, h, out);
+            return rasterizeGradient(scene, w, h, t, definition, out);
+        case "livingGradient":
+            return rasterizeLivingGradient(scene, w, h, t, definition, out);
         case "expression":
             return rasterizeExpression(definition || { quality: { fps: 30 } }, scene, w, h, t, out);
         case "image":
