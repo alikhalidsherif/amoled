@@ -1,0 +1,18 @@
+{
+  "amo": 1,
+  "meta": { "name": "plasma field", "author": "ali" },
+  "display": {
+    "gamma": 1.45,
+    "spill": 0.42,
+    "bloom": { "intensity": 0.4, "threshold": 0.38, "radius": 14 }
+  },
+  "quality": { "logicalResolution": { "width": 320, "height": 180 }, "fps": 30 },
+  "timeline": { "duration": 30, "loop": true },
+  "scene": {
+    "type": "expression",
+    "seed": 7,
+    "r": "clamp(0.5 + 0.5*sin(x*8 + t*2)*sin(y*6 - t*1.5), 0, 1)",
+    "g": "clamp(0.5 + 0.45*sin(sqrt((u-0.5)^2+(v-0.5)^2)*24 - t*3), 0, 1)",
+    "b": "clamp(0.35 + 0.35*noise(u*6 + t*0.4, v*6), 0, 1)"
+  }
+}
