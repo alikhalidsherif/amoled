@@ -163,6 +163,17 @@ export default class AMOLEDPlayer {
     }
 
     play() { this.runtime.start(); return this; }
+
+    /**
+     * Pause and render exactly one frame at absolute time t (seconds).
+     * Deterministic for stateless scenes (format invariant).
+     */
+    scrub(t) { this.runtime.scrub(t); return this; }
+    getTime() { return this.runtime.time; }
+    getDuration() {
+        const tl = this.runtime.definitionRef && this.runtime.definitionRef.timeline;
+        return tl ? tl.duration : 0;
+    }
     pause() { this.runtime.pause(); return this; }
     stop() { this.runtime.stop(); return this; }
 

@@ -10,7 +10,7 @@
 // window resizes re-negotiate logical size and re-render [A2].
 
 import { rasterize } from "../scene/rasterizer.js";
-import { createTimeline } from "./timeline.js";
+import { createTimeline, wrapTime } from "./timeline.js";
 
 export function createRuntime({ renderer }) {
     const engineRenderer = renderer;
@@ -248,6 +248,34 @@ export function createRuntime({ renderer }) {
         /** Re-rasterize (quality change / invalidation). */
         invalidate() {
             renderOnceIfIdle();
+        },
+
+        /**
+         * Pause and render exactly ONE frame at absolute time t (seconds).
+         * Deterministic for stateless scenes (format invariant). Keyframed
+         * display properties are applied to match the scrub point.
+         */
+        scrub(tAbs) {
+            runtime.pause();
+            if (!definition) return;
+            const tt = timeline
+                ? wrapTime(tAbs, timeline.duration, timeline.loop !== false)
+                : Math.max(0, tAbs);
+            sceneTime = tt;
+            accumulated = 0;
+            try {
+                if (timeline) {
+                    const patch = timeline.sample(sceneTime);
+                    if (Object.keys(patch).length > 0) {
+                        engineRenderer.updateConfig(patch);
+                    }
+                }
+                mediaAdvance();
+                pushCurrentFrame();
+                emit("frame", { t: sceneTime });
+            } catch (err) {
+                emit("error", err);
+            }
         },
 
         /** Quality-negotiation override; re-renders at the new size. */

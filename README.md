@@ -74,6 +74,74 @@ src/engine/amoled-renderer.js          — Canvas 2D renderer (fallback)
 </script>
 ```
 
+## The `.amo` scene format
+
+A `.amo` file is a declarative JSON scene: **what the display shows** (`scene`),
+**how the simulated panel should look** (`display`), and **how much work to spend**
+(`quality`). Load it through the player:
+
+```js
+const player = new AMOLEDPlayer({ renderer: sim, events });
+await player.load("/scenes/forest.amo");   // fetch → parse → validate → play
+player.play(); player.pause(); player.scrub(3.2);
+```
+
+### Scene types
+
+| Type | Purpose |
+|---|---|
+| `color` | Solid color; channels accept expressions |
+| `gradient` | 2-stop gradient; per-channel expression colors supported |
+| `livingGradient` | Multi-stop animated gradient with sinusoidal `wobble` |
+| `pattern` | Generators: `dots`, `checks`, `stripes`, `scanlines`, `halftone` — size/thickness/angle/offset all animatable |
+| `flow` | Domain-warped fbm noise field mapped through a color palette (the "living background" workhorse) |
+| `particles` | Stateless seeded particle systems: `drift`, `orbit`, `rise`, `fall`, `fireflies`, `snow` |
+| `expression` | Per-pixel math: `r/g/b` expressions over `x y t u v noise(...)` |
+| `image` / `gif` / `video` | Media sources, rasterized to logical resolution |
+| `composite` | Layer stack with blend modes (`normal/add/multiply/screen/overlay`), opacity, clip rects, scale + **rotation**, offsets |
+
+### Expressions everywhere
+
+Any numeric or color-channel property can be an **expression string** instead of a
+literal:
+
+```json
+{ "type": "composite", "layers": [
+  { "type": "flow", "palette": ["#020d06", "#175c2e", "#79c98a"],
+    "scale": 3.2, "speed": 0.09, "warp": 0.65 },
+  { "type": "particles", "behavior": "fireflies", "count": 70,
+    "color": "#c8ffb0", "blend": "add" },
+  { "type": "color", "color": "#ff8000", "blend": "screen",
+    "opacity": "0.5 + 0.4*sin(t*0.7)",
+    "scale": "1 + 0.05*sin(t*0.5)",
+    "rotation": "0.08*sin(t*0.25)" }
+]}
+```
+
+Variables: `x y t frame u v width height seed progress`. Functions include
+`sin cos abs sqrt pow min max clamp mix smoothstep fract mod distance length noise`.
+All randomness is seeded — same `.amo` + same time ⇒ identical output.
+
+### Static-scene invariant
+
+If nothing in a scene references time, it renders **exactly one frame and stops** —
+no rAF loop, zero idle CPU. Animated scenes tick at their requested `quality.fps`.
+
+### Display personality per scene
+
+Each `.amo` owns its physical display characteristics via the `display` section:
+gamma, spill, bloom (intensity/floor/radius), R/G/B emitter output & sigma,
+brightness levels, PenTile geometry, pitch. Scenes request quality
+(`logicalResolution`, `fps`, `supersample`) — the device negotiates the final values
+and never touches art direction.
+
+### Authoring
+
+The hybrid studio at `/generator/index.html` offers live preview through the real
+player, a round-tripping `.amo` source pane, timeline scrubbing, motion presets
+(pulse/orbit/sway/flicker/hueDrift/… that expand to plain expressions), and export.
+See `scenes/*.amo` for a gallery of every feature.
+
 ## API
 
 ### `GPUPentileSimulator` / `AMOLEDRenderer`
