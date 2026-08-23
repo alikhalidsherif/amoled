@@ -1,11 +1,14 @@
-// .amo STUDIO (PLAN-CREATIVE.md §Workstream D): hybrid editor.
-// Left: form controls → write into workingRaw. Right: live .amo source
-// textarea → parse on edit; valid edits replace workingRaw + hydrate form.
-// Center: real player + engine preview with scrubber. Gallery loads the
-// committed scenes. Presets expand to plain expressions via src/scene/presets.
+// .amo STUDIO — visual-first scene builder (PLAN-CREATIVE.md §Workstream D,
+// redesigned for mobile + desktop after real-world feedback).
 //
-// Single-writer rule: form edits regenerate the whole source text from
-// workingRaw; source edits replace workingRaw wholesale when valid.
+// Model:
+//   workingRaw            authoritative raw .amo object
+//   selected              { kind: "scene" } | { kind: "layer", index }
+//   Single (non-composite) scenes appear as one pseudo-layer; adding a second
+//   layer auto-wraps the scene into a composite.
+//
+// Round-trip: form edits patch workingRaw then regenerate the source text;
+// source edits replace workingRaw wholesale when they validate.
 
 import { parseAmo } from "../src/scene/parser.js";
 import { applyPreset, listPresets } from "../src/scene/presets.js";
@@ -14,13 +17,17 @@ import AMOLEDPlayer from "../src/player/amoplayer.js";
 const GPUPentileSimulator = window.AMOLED.GPUPentileSimulator;
 
 const $ = id => document.getElementById(id);
-const statusEl = $("status");
+const statusEl = $("statusbar");
 const sourceEl = $("source");
 
 function setStatus(text, cls) {
     statusEl.textContent = text;
     statusEl.className = cls || "";
 }
+
+window.__gsim = null;
+window.__gplayerRef = () => player;
+window.__gworking = () => workingRaw;
 
 // ------------------------------------------------------------------
 // Renderer + player
@@ -29,60 +36,131 @@ const sim = new GPUPentileSimulator({
     containerSelector: "#shell",
     canvasSelector: "#preview-canvas"
 });
+window.__gsim = sim;
 let player = null;
 let playing = false;
 let scrubbing = false;
-
-window.__gsim = sim;
-window.__gplayerRef = () => player;
-window.__gworking = () => workingRaw;
-window.__geditCount = 0;
-window.__gsuppressed = () => suppressSourceSync;
+let workingRaw = null;
+let selected = { kind: "scene", index: -1 };
+let lastErrorPath = "";
+let suppressSourceSync = false;
 
 function boot() {
     player = new AMOLEDPlayer({
         renderer: sim,
         events: {
-            onerror: err => setStatus("error: " + err.message, "err"),
+            onerror: err => {
+                lastErrorPath = err.path || "";
+                setStatus("error: " + err.message, "err");
+                highlightError();
+            },
             onload: info => {
+                lastErrorPath = "";
                 const warns = info.warnings && info.warnings.length
                     ? "\nwarnings:\n - " + info.warnings.join("\n - ") : "";
-                setStatus(`loaded "${info.name}" (${info.isStatic ? "static" : "animated"})${warns}`,
-                    info.isStatic ? "ok" : "warn");
+                setStatus(`✓ "${info.name}" — ${info.isStatic ? "static (renders once)" : "animated"}${warns}`,
+                    info.isStatic ? "ok" : "");
+                highlightError();
                 updateTransport();
             }
         }
     });
 }
 
-// ------------------------------------------------------------------
-// Working state
-// ------------------------------------------------------------------
-let workingRaw = null;      // authoritative raw object
-let suppressSourceSync = false;
+function highlightError() {
+    const m = /layers\[(\d+)\]/.exec(lastErrorPath);
+    const badIdx = m ? parseInt(m[1]) : -1;
+    document.querySelectorAll(".layer-chip").forEach((chip, i) => {
+        chip.classList.toggle("error",
+            badIdx >= 0 && chip.dataset.layerIndex === String(badIdx));
+    });
+}
 
-function defaultScene() {
-    return {
-        amo: 1,
-        meta: { name: "my scene", author: "" },
-        display: {
-            gamma: 1.7, spill: 0.4,
-            brightness: { active: 1, inactive: 0.035 },
-            bloom: { intensity: 0.25, threshold: 0.45, radius: 14 }
-        },
-        quality: { fps: 30 },
-        timeline: { duration: 8, loop: true },
-        scene: {
-            type: "livingGradient",
-            direction: "vertical",
-            stops: [
-                { at: 0, color: "#001208" },
-                { at: 0.55, color: "#175c2e" },
-                { at: 1, color: "#2a5c34" }
-            ],
-            wobble: "0.05*sin(t*0.4)"
-        }
-    };
+// ------------------------------------------------------------------
+// Scene type schemas (visual editors)
+// ------------------------------------------------------------------
+const SCENE_TYPES = ["livingGradient", "flow", "particles", "pattern",
+    "expression", "gradient", "color", "image", "gif", "video"];
+
+// kind: eval-num (text input + optional slider), color, select, expr, int
+const TYPE_FIELDS = {
+    livingGradient: [
+        { key: "direction", label: "Direction", kind: "select", options: ["vertical", "horizontal", "diagonal", "radial"], def: "vertical" },
+        { key: "wobble", label: "Wobble amount", kind: "eval-num", min: -0.3, max: 0.3, step: 0.01, def: "0.05*sin(t*0.4)", hint: "number or time expression" },
+        { key: "__stops", label: "Color stops", kind: "stops", def: [{ at: 0, color: "#001208" }, { at: 1, color: "#2a5c34" }] }
+    ],
+    flow: [
+        { key: "__palette", label: "Palette", kind: "palette", def: ["#020d06", "#0a2e18", "#175c2e", "#79c98a"] },
+        { key: "scale", label: "Detail (scale)", kind: "eval-num", min: 0.5, max: 12, step: 0.1, def: 3.5 },
+        { key: "speed", label: "Drift speed", kind: "eval-num", min: 0, max: 2, step: 0.01, def: 0.12 },
+        { key: "warp", label: "Turbulence (warp)", kind: "eval-num", min: 0, max: 2, step: 0.05, def: 0.5 },
+        { key: "octaves", label: "Octaves", kind: "select", options: ["1", "2", "3", "4", "5"], def: "3" },
+        { key: "seed", label: "Seed", kind: "int", def: 7 }
+    ],
+    particles: [
+        { key: "behavior", label: "Behavior", kind: "select", options: ["fireflies", "drift", "orbit", "rise", "fall", "snow"], def: "fireflies" },
+        { key: "count", label: "Count", kind: "eval-num", min: 1, max: 400, step: 1, def: 80 },
+        { key: "speed", label: "Speed", kind: "eval-num", min: 0, max: 2, step: 0.01, def: 0.2 },
+        { key: "glow", label: "Glow", kind: "eval-num", min: 0, max: 1, step: 0.05, def: 0.7 },
+        { key: "color", label: "Color", kind: "color", def: "#c8ffb0" },
+        { key: "seed", label: "Seed", kind: "int", def: 42 }
+    ],
+    pattern: [
+        { key: "pattern", label: "Variant", kind: "select", options: ["dots", "checks", "stripes", "scanlines", "halftone"], def: "dots" },
+        { key: "size", label: "Size (px)", kind: "eval-num", min: 2, max: 64, step: 1, def: 10 },
+        { key: "thickness", label: "Thickness", kind: "eval-num", min: 0, max: 1, step: 0.05, def: 0.6 },
+        { key: "fg", label: "Foreground", kind: "color", def: "#39ff6a" },
+        { key: "bg", label: "Background", kind: "color", def: "#041008" },
+        { key: "softness", label: "Edge softness", kind: "eval-num", min: 0, max: 0.5, step: 0.01, def: 0.1 },
+        { key: "angle", label: "Angle (rad)", kind: "eval-num", min: -3.14, max: 3.14, step: 0.05, def: 0 }
+    ],
+    expression: [
+        { key: "r", label: "Red channel", kind: "expr", def: "0.5 + 0.5*sin(x*8 + t*2)" },
+        { key: "g", label: "Green channel", kind: "expr", def: "0.5 + 0.45*sin(y*6 - t*1.5)" },
+        { key: "b", label: "Blue channel", kind: "expr", def: "0.35 + 0.35*noise(u*6 + t*0.4, v*6)" },
+        { key: "seed", label: "Seed", kind: "int", def: 7 }
+    ],
+    gradient: [
+        { key: "__from", label: "From", kind: "color-or-json", def: "#001a08" },
+        { key: "__to", label: "To", kind: "color-or-json", def: "#123f20" },
+        { key: "direction", label: "Direction", kind: "select", options: ["vertical", "horizontal", "diagonal", "radial"], def: "vertical" }
+    ],
+    color: [{ key: "color", label: "Color", kind: "color", def: "#06120a" }],
+    image: [{ key: "__assetUrl", label: "Image URL", kind: "asset", def: "../assets/test-portrait.gif" },
+            { key: "fit", label: "Fit", kind: "select", options: ["cover", "contain", "stretch"], def: "cover" }],
+    gif: [{ key: "__assetUrl", label: "GIF URL", kind: "asset", def: "../assets/test-portrait.gif" },
+          { key: "fit", label: "Fit", kind: "select", options: ["cover", "contain", "stretch"], def: "cover" }],
+    video: [{ key: "__assetUrl", label: "Video URL", kind: "asset", def: "../assets/clip.webm" }]
+};
+
+// Transform/blending fields available on every layer of a composite.
+const TRANSFORM_FIELDS = [
+    { key: "opacity", label: "Opacity", kind: "eval-num", min: 0, max: 1, step: 0.05, def: 1 },
+    { key: "blend", label: "Blend", kind: "select", options: ["normal", "add", "screen", "multiply", "overlay"], def: "normal" },
+    { key: "scale", label: "Scale", kind: "eval-num", min: 0.2, max: 4, step: 0.05, def: 1 },
+    { key: "rotation", label: "Rotation (rad)", kind: "eval-num", min: -3.14, max: 3.14, step: 0.05, def: 0 }
+];
+
+// ------------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------------
+function num(id, fallback) {
+    const v = parseFloat($(id).value);
+    return Number.isFinite(v) ? v : fallback;
+}
+function val(id) { return $(id).value; }
+
+/** The fragment the layer editor currently targets. */
+function targetFragment() {
+    if (!workingRaw) return null;
+    if (workingRaw.scene?.type === "composite") {
+        return workingRaw.scene.layers[selected.index] ?? null;
+    }
+    return workingRaw.scene ?? null;
+}
+
+function isComposite() {
+    return workingRaw?.scene?.type === "composite";
 }
 
 // ------------------------------------------------------------------
@@ -94,31 +172,7 @@ function syncSourceFromWorking() {
     suppressSourceSync = true;
     sourceEl.value = JSON.stringify(workingRaw, null, 2);
     suppressSourceSync = false;
-}
-
-function onSourceEdit() {
-    window.__geditCount++;
-    if (suppressSourceSync) return;
-    clearTimeout(reparseTimer);
-    reparseTimer = setTimeout(() => {
-        let raw;
-        try {
-            raw = JSON.parse(sourceEl.value);
-        } catch (e) {
-            setStatus("invalid JSON: " + e.message, "err");
-            return;
-        }
-        try {
-            const parsed = parseAmo(raw);   // validate before adopting
-            workingRaw = raw;
-            hydrateForm(raw);
-            loadToPlayer();
-            setStatus(`valid ✓${parsed.warnings.length ? "\nwarnings:\n - " + parsed.warnings.join("\n - ") : ""}`,
-                parsed.warnings.length ? "warn" : "ok");
-        } catch (e) {
-            setStatus((e.name === "AmoError" ? "" : (e.stack || "")) + e.message, "err");
-        }
-    }, 250);
+    sourceEl.classList.remove("invalid");
 }
 
 async function loadToPlayer() {
@@ -128,6 +182,7 @@ async function loadToPlayer() {
         await player.load(parsed.definition);
         if (playing) player.play();
         updateTransport();
+        renderLayers();      // reflect adopted state
         return parsed;
     } catch (e) {
         setStatus("load failed: " + e.message, "err");
@@ -135,10 +190,466 @@ async function loadToPlayer() {
     }
 }
 
-function rebuildFromForm() {
-    // Form is authoritative for meta/display/quality/timeline sections and
-    // basic scene fields; everything else in workingRaw is preserved.
-    workingRaw.meta = { name: val("f-name"), author: val("f-author") };
+function onSourceEdit() {
+    if (suppressSourceSync) return;
+    clearTimeout(reparseTimer);
+    reparseTimer = setTimeout(async () => {
+        let raw;
+        try {
+            raw = JSON.parse(sourceEl.value);
+        } catch (e) {
+            setStatus("invalid JSON: " + e.message, "err");
+            sourceEl.classList.add("invalid");
+            return;
+        }
+        try {
+            const parsed = parseAmo(raw);
+            workingRaw = raw;
+            clampSelection();
+            hydrateAll();
+            await loadToPlayer();
+            setStatus(`valid ✓${parsed.warnings.length ? "\nwarnings:\n - " + parsed.warnings.join("\n - ") : ""}`,
+                parsed.warnings.length ? "warn" : "ok");
+        } catch (e) {
+            lastErrorPath = e.path || "";
+            setStatus((e.name === "AmoError" ? "" : (e.stack || "")) + e.message, "err");
+            highlightError();
+        }
+    }, 300);
+}
+
+function clampSelection() {
+    const n = layerCount();
+    if (selected.kind === "layer" && selected.index >= n) {
+        selected = n > 0 ? { kind: "layer", index: n - 1 } : { kind: "scene", index: -1 };
+    }
+}
+function layerCount() {
+    return isComposite() ? workingRaw.scene.layers.length : 1;
+}
+
+// ------------------------------------------------------------------
+// Layer list UI
+// ------------------------------------------------------------------
+function describeLayer(frag) {
+    const bits = [];
+    switch (frag?.type) {
+        case "flow":
+            if (Array.isArray(frag.palette)) bits.push(frag.palette.slice(0, 3).join(" "));
+            break;
+        case "particles":
+            bits.push(`${frag.count ?? "?"}× ${frag.behavior ?? "drift"}`);
+            break;
+        case "pattern":
+            bits.push(frag.pattern ?? "dots");
+            break;
+        case "expression":
+            bits.push("procedural math");
+            break;
+        case "livingGradient": {
+            const stops = frag.stops?.length ?? "?";
+            bits.push(`${stops} stops`);
+            break;
+        }
+        default: break;
+    }
+    return bits.join(" · ");
+}
+
+function renderLayers() {
+    const host = $("layer-list");
+    host.innerHTML = "";
+    if (!workingRaw) return;
+
+    const frags = isComposite()
+        ? workingRaw.scene.layers.map((l, i) => ({ frag: l, i }))
+        : [{ frag: workingRaw.scene, i: -1 }];
+
+    frags.forEach(({ frag, i }) => {
+        const chip = document.createElement("div");
+        chip.className = "layer-chip";
+        const selIdx = isComposite() ? i : -1;
+        if ((selected.kind === "layer" && selIdx === selected.index) ||
+            (selected.kind === "scene" && !isComposite())) {
+            chip.classList.add("selected");
+        }
+        chip.dataset.layerIndex = String(selIdx);
+        chip.innerHTML =
+            `<span class="l-order">${isComposite() ? (i + 1) : "•"}</span>` +
+            `<span class="l-type">${escapeHtml(frag?.type ?? "?")}</span>` +
+            `<span class="l-desc">${escapeHtml(describeLayer(frag))}</span>`;
+        chip.addEventListener("click", () => selectLayer(isComposite() ? i : -1));
+        host.appendChild(chip);
+    });
+
+    if (!isComposite()) {
+        const hint = document.createElement("div");
+        hint.className = "hint";
+        hint.textContent = "Single scene — add another layer to unlock blending.";
+        host.appendChild(hint);
+    } else {
+        const order = document.createElement("div");
+        order.className = "hint";
+        order.textContent = "Order: bottom → top. Tap to edit.";
+        host.appendChild(order);
+    }
+    highlightError();
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function selectLayer(idx) {
+    selected = idx < 0 ? { kind: "scene", index: -1 } : { kind: "layer", index: idx };
+    renderLayers();
+    renderLayerEditor();
+}
+
+function ensureComposite() {
+    if (isComposite()) return;
+    const base = JSON.parse(JSON.stringify(workingRaw.scene));
+    workingRaw.scene = { type: "composite", layers: [base] };
+    selected = { kind: "layer", index: 0 };
+}
+
+$("btn-add-layer").addEventListener("click", () => {
+    ensureComposite();
+    const type = prompt("Layer type:\n" + SCENE_TYPES.map((t, i) => `${i}: ${t}`).join("\n") + "\n(default: flow)", "flow");
+    if (type === null) return;
+    const t = SCENE_TYPES.includes(type.trim()) ? type.trim() : "flow";
+    const frag = buildSceneForType(t);
+    workingRaw.scene.layers.push(frag);
+    selected = { kind: "layer", index: workingRaw.scene.layers.length - 1 };
+    afterStructureChange();
+});
+
+$("btn-dup-layer").addEventListener("click", () => {
+    if (!isComposite()) return;
+    const src = workingRaw.scene.layers[selected.index];
+    if (!src) return;
+    workingRaw.scene.layers.splice(selected.index + 1, 0, JSON.parse(JSON.stringify(src)));
+    selected.index += 1;
+    afterStructureChange();
+});
+
+$("btn-del-layer").addEventListener("click", () => {
+    if (!isComposite()) return;
+    if (workingRaw.scene.layers.length <= 1) {
+        // unwrap back to single scene
+        workingRaw.scene = JSON.parse(JSON.stringify(workingRaw.scene.layers[0]));
+        selected = { kind: "scene", index: -1 };
+        afterStructureChange();
+        return;
+    }
+    workingRaw.scene.layers.splice(selected.index, 1);
+    clampSelection();
+    afterStructureChange();
+});
+
+$("btn-up").addEventListener("click", () => moveLayer(-1));
+$("btn-down").addEventListener("click", () => moveLayer(1));
+function moveLayer(dir) {
+    if (!isComposite()) return;
+    const i = selected.index, j = i + dir;
+    if (i < 0 || j < 0 || j >= workingRaw.scene.layers.length) return;
+    const L = workingRaw.scene.layers;
+    [L[i], L[j]] = [L[j], L[i]];
+    selected.index = j;
+    afterStructureChange();
+}
+
+function afterStructureChange() {
+    renderLayers();
+    renderLayerEditor();
+    syncSourceFromWorking();
+    loadToPlayer();
+}
+
+// ------------------------------------------------------------------
+// Field editors
+// ------------------------------------------------------------------
+function buildSceneForType(type) {
+    const scene = { type };
+    for (const f of TYPE_FIELDS[type] || []) {
+        if (f.kind === "stops") scene.stops = JSON.parse(JSON.stringify(f.def));
+        else if (f.kind === "palette") scene.palette = [...f.def];
+        else if (f.kind === "int") scene[f.key] = f.def;
+        else if (f.kind === "select") scene[f.key] = typeof f.def === "number" ? f.def : f.def;
+        else if (f.kind !== "color") scene[f.key] = f.def;
+        else scene[f.key] = f.def;
+    }
+    normalizeSpecials(scene);
+    return scene;
+}
+
+/** Convert __-prefixed raw inputs into structured properties. */
+function normalizeSpecials(scene) {
+    if (typeof scene.__from === "string") {
+        try { scene.from = JSON.parse(scene.__from); } catch { scene.from = scene.__from; }
+        delete scene.__from;
+    }
+    if (typeof scene.__to === "string") {
+        try { scene.to = JSON.parse(scene.__to); } catch { scene.to = scene.__to; }
+        delete scene.__to;
+    }
+    if (typeof scene.__assetUrl === "string") {
+        scene.asset = "media";
+        workingRaw.assets = { ...(workingRaw.assets || {}), media: scene.__assetUrl };
+        delete scene.__assetUrl;
+    }
+}
+
+function renderLayerEditor() {
+    const host = $("layer-editor");
+    host.innerHTML = "";
+    const frag = targetFragment();
+    if (!frag) return;
+
+    const type = frag.type;
+    const title = document.createElement("h2");
+    title.textContent = `Edit ${type}${isComposite() ? ` · layer ${selected.index + 1}` : ""}`;
+    host.appendChild(title);
+
+    const wrap = document.createElement("div");
+
+    for (const f of TYPE_FIELDS[type] || []) {
+        wrap.appendChild(renderField(f, frag));
+    }
+
+    // Transform/blending panel for composite layers.
+    if (isComposite()) {
+        const th = document.createElement("h2");
+        th.textContent = "Transform & blending";
+        host.appendChild(wrap);
+        host.appendChild(th);
+        const tw = document.createElement("div");
+        for (const f of TRANSFORM_FIELDS) tw.appendChild(renderField(f, frag));
+        const offRow = document.createElement("div");
+        offRow.className = "row";
+        offRow.appendChild(offsetField(frag, "x"));
+        offRow.appendChild(offsetField(frag, "y"));
+        tw.appendChild(offRow);
+        host.appendChild(tw);
+    } else {
+        host.appendChild(wrap);
+    }
+}
+
+function offsetField(frag, axis) {
+    const label = document.createElement("label");
+    label.className = "field";
+    label.innerHTML = `Offset ${axis.toUpperCase()} <span class="hint">number or expr</span>`;
+    const input = document.createElement("input");
+    input.type = "text"; input.step = "any";
+    input.value = frag.offset?.[axis] ?? 0;
+    input.addEventListener("input", () => {
+        if (!frag.offset) frag.offset = {};
+        frag.offset[axis] = maybeNumber(input.value);
+        commitEdits();
+    });
+    label.appendChild(input);
+    return label;
+}
+
+function maybeNumber(v) {
+    if (typeof v !== "string") return v;
+    const n = parseFloat(v);
+    return (/^-?\d*\.?\d+(?:[eE][+-]?\d+)?$/.test(v.trim()) && Number.isFinite(n)) ? n : v;
+}
+
+function renderField(f, frag) {
+    const label = document.createElement("label");
+    label.className = "field";
+    let input;
+
+    switch (f.kind) {
+        case "select": {
+            input = document.createElement("select");
+            for (const o of f.options) {
+                const opt = document.createElement("option");
+                opt.value = o; opt.textContent = o;
+                input.appendChild(opt);
+            }
+            const cur = frag[f.key];
+            if (cur !== undefined) input.value = String(cur);
+            else if (typeof f.def === "number") input.value = String(f.def);
+            input.addEventListener("change", () => {
+                const n = Number(input.value);
+                frag[f.key] = Number.isFinite(n) && /^\d+$/.test(String(input.value)) ? n : input.value;
+                commitEdits();
+            });
+            break;
+        }
+        case "color": {
+            input = document.createElement("input");
+            input.type = "color";
+            input.value = toHex(frag[f.key]) || f.def;
+            if (typeof frag[f.key] === "string" && frag[f.key][0] !== "#") input.disabled = true;
+            input.addEventListener("input", () => {
+                frag[f.key] = input.value;
+                commitEdits();
+            });
+            break;
+        }
+        case "color-or-json": {
+            input = document.createElement("input");
+            input.type = "text";
+            input.value = typeof frag[f.key] === "object"
+                ? JSON.stringify(frag[f.key]) : (toHex(frag[f.key]) ?? frag[f.key] ?? f.def);
+            input.addEventListener("input", () => {
+                frag["__" + f.key.replace("__", "")] = undefined;
+                delete frag[f.key];
+                try { frag[f.key] = JSON.parse(input.value); }
+                catch { frag[f.key] = input.value; }
+                commitEdits();
+            });
+            break;
+        }
+        case "palette": {
+            const cur = Array.isArray(frag[f.key]) ? frag[f.key] : f.def;
+            input = document.createElement("input");
+            input.type = "text";
+            input.value = cur.map(toHexValue).join("  ");
+            input.addEventListener("input", () => {
+                frag[f.key] = input.value.split(/[\s,]+/).filter(s => s.startsWith("#"));
+                commitEdits();
+            });
+            label.innerHTML = `${f.label} <span class="hint">hex colors separated by spaces</span>`;
+            break;
+        }
+        case "stops": {
+            const cur = Array.isArray(frag.stops) ? frag.stops : f.def;
+            input = document.createElement("textarea");
+            input.rows = 3;
+            input.value = cur.map(s =>
+                `{ "at": ${s.at}, "color": ${JSON.stringify(typeof s.color === "string" ? s.color : "#" + chanToHex(s.color))} }`
+            ).join(",\n");
+            input.addEventListener("input", () => {
+                try {
+                    frag.stops = JSON.parse(`[${input.value}]`);
+                    input.style.borderColor = "";
+                    commitEdits();
+                } catch { input.style.borderColor = "var(--err)"; }
+            });
+            label.innerHTML = `${f.label} <span class="hint">one per line: {"at":0.5,"color":"#22552c"} · expressions allowed in color channels</span>`;
+            break;
+        }
+        case "expr": {
+            input = document.createElement("textarea");
+            input.rows = 2;
+            input.value = frag[f.key] ?? f.def;
+            input.addEventListener("input", () => {
+                frag[f.key] = input.value;
+                commitEdits();
+            });
+            label.innerHTML = `${f.label} <span class="expr-badge">expression</span>`;
+            break;
+        }
+        case "asset": {
+            input = document.createElement("input");
+            input.type = "text";
+            const assetName = frag.asset;
+            input.value = assetName && workingRaw.assets ? (workingRaw.assets[assetName] || "") : f.def;
+            input.addEventListener("input", () => {
+                frag.asset = "media";
+                workingRaw.assets = { ...(workingRaw.assets || {}), media: input.value };
+                commitEdits();
+            });
+            break;
+        }
+        case "int": {
+            input = document.createElement("input");
+            input.type = "number"; input.step = "1";
+            input.value = frag[f.key] ?? f.def;
+            input.addEventListener("input", () => {
+                const n = parseInt(input.value);
+                if (Number.isFinite(n)) { frag[f.key] = n; commitEdits(); }
+            });
+            break;
+        }
+        case "eval-num":
+        default: {
+            input = document.createElement("input");
+            input.type = "text"; input.step = "any";
+            const cur = frag[f.key];
+            input.value = cur !== undefined ? String(cur) : String(f.def);
+            input.placeholder = "number or expression";
+            input.addEventListener("input", () => {
+                frag[f.key] = maybeNumber(input.value);
+                syncSlider(frag, f, label);
+                commitEdits();
+            });
+            label.innerHTML = `${f.label} <span class="hint">number or expr</span>`;
+            // Slider companion for numeric values with a known range.
+            if (f.min !== undefined) {
+                const slider = document.createElement("input");
+                slider.type = "range";
+                slider.min = String(f.min); slider.max = String(f.max);
+                slider.step = String(f.step ?? 0.01);
+                slider.dataset.sliderFor = f.key;
+                slider.addEventListener("input", () => {
+                    frag[f.key] = parseFloat(slider.value);
+                    input.value = slider.value;
+                    commitEdits();
+                });
+                label.appendChild(slider);
+                syncSlider(frag, f, label);
+            }
+            break;
+        }
+    }
+
+    if (input && input.parentNode !== label) label.appendChild(input);
+    return label;
+}
+
+function syncSlider(frag, f, label) {
+    const slider = label.querySelector(`input[data-slider-for="${f.key}"]`);
+    if (!slider) return;
+    const v = frag[f.key];
+    if (typeof v === "number") {
+        slider.disabled = false;
+        slider.value = String(Math.min(Math.max(v, f.min), f.max));
+    } else {
+        slider.disabled = true;   // expression-driven
+    }
+}
+
+function toHex(color) {
+    if (typeof color !== "string") return null;
+    return color[0] === "#" ? color : null;
+}
+function toHexValue(color) {
+    if (typeof color === "string") return color;
+    if (color && typeof color === "object") {
+        const h = v => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, "0");
+        return `#${h(color.r)}${h(color.g)}${h(color.b)}`;
+    }
+    return "#888888";
+}
+function chanToHex(color) {
+    return typeof color === "string" ? color : toHexValue(color);
+}
+
+let commitTimer = null;
+function commitEdits() {
+    clearTimeout(commitTimer);
+    commitTimer = setTimeout(() => {
+        syncSourceFromWorking();
+        loadToPlayer();
+    }, 350);
+}
+
+// ------------------------------------------------------------------
+// Design tab -> workingRaw
+// ------------------------------------------------------------------
+function rebuildDesignIntoWorking() {
+    if (!workingRaw) return;
+    workingRaw.meta = {
+        name: val("f-name"),
+        author: val("f-author") || (workingRaw.meta?.author ?? "")
+    };
     workingRaw.display = {
         ...keepKnown(workingRaw.display, ["emitters", "pentile"]),
         gamma: num("f-gamma", 1.7),
@@ -151,9 +662,7 @@ function rebuildFromForm() {
             radius: num("f-bloomR", 14)
         }
     };
-    if (workingRaw.display.emitters === undefined && workingRaw.display.emitters !== undefined) {} // no-op guard
-    const q = {};
-    q.fps = num("f-fps", 30);
+    const q = { fps: num("f-fps", 30) };
     const ss = val("f-ss");
     if (ss) q.supersample = Number(ss);
     const lw = parseInt(val("f-lw")), lh = parseInt(val("f-lh"));
@@ -165,202 +674,24 @@ function rebuildFromForm() {
     if (workingRaw.timeline || dur > 0) {
         workingRaw.timeline = { ...(workingRaw.timeline || {}), duration: dur, loop };
     }
-
-    // Scene type switch resets scene unless same type.
-    const typeSel = $("f-type").value;
-    if (!workingRaw.scene || workingRaw.scene.type !== typeSel) {
-        workingRaw.scene = buildSceneForType(typeSel);
-        renderSceneFields();
-    } else {
-        collectSceneFieldsInto(workingRaw.scene);
-    }
-
-    syncSourceFromWorking();
-    loadToPlayer();
 }
-
 function keepKnown(obj, keys) {
     const out = {};
     for (const k of keys) if (obj && obj[k] !== undefined) out[k] = obj[k];
     return out;
 }
 
-// ------------------------------------------------------------------
-// Scene type fields
-// ------------------------------------------------------------------
-const SCENE_TYPES = [
-    "color", "gradient", "livingGradient", "pattern", "flow", "particles",
-    "expression", "image", "gif", "video", "composite"
-];
-
-const FIELD_DEFS = {
-    color: [{ key: "color", label: "Color", kind: "color", def: "#06120a" }],
-    gradient: [
-        { key: "__from", label: "From (hex or {r,g,b})", kind: "text", def: "#001a08" },
-        { key: "__to", label: "To", kind: "text", def: "#123f20" },
-        { key: "direction", label: "Direction", kind: "select", options: ["vertical", "horizontal", "diagonal", "radial"], def: "vertical" }
-    ],
-    livingGradient: [
-        { key: "direction", label: "Direction", kind: "select", options: ["vertical", "horizontal", "diagonal", "radial"], def: "vertical" },
-        { key: "wobble", label: "Wobble (expr)", kind: "text", def: "0.05*sin(t*0.4)" },
-        { key: "__stops", label: "Stops JSON [{at,color}]", kind: "textarea", def: "[{\"at\":0,\"color\":\"#001208\"},{\"at\":1,\"color\":\"#2a5c34\"}]" }
-    ],
-    pattern: [
-        { key: "pattern", label: "Variant", kind: "select", options: ["dots", "checks", "stripes", "scanlines", "halftone"], def: "dots" },
-        { key: "size", label: "Size (px or expr)", kind: "text", def: "10" },
-        { key: "thickness", label: "Thickness (0-1)", kind: "text", def: "0.6" },
-        { key: "fg", label: "FG", kind: "color", def: "#39ff6a" },
-        { key: "bg", label: "BG", kind: "color", def: "#041008" },
-        { key: "softness", label: "Softness", kind: "text", def: "0.1" },
-        { key: "angle", label: "Angle (rad or expr)", kind: "text", def: "0" }
-    ],
-    flow: [
-        { key: "__palette", label: "Palette JSON [hex...]", kind: "textarea", def: "[\"#020d06\",\"#0a2e18\",\"#175c2e\",\"#79c98a\"]" },
-        { key: "scale", label: "Scale", kind: "text", def: "3.5" },
-        { key: "speed", label: "Speed", kind: "text", def: "0.12" },
-        { key: "warp", label: "Warp 0-2", kind: "text", def: "0.5" },
-        { key: "octaves", label: "Octaves 1-5", kind: "number", def: 3 },
-        { key: "seed", label: "Seed", kind: "number", def: 7 }
-    ],
-    particles: [
-        { key: "behavior", label: "Behavior", kind: "select", options: ["drift", "orbit", "rise", "fall", "fireflies", "snow"], def: "fireflies" },
-        { key: "count", label: "Count (≤512)", kind: "number", def: 80 },
-        { key: "speed", label: "Speed", kind: "text", def: "0.2" },
-        { key: "glow", label: "Glow 0-1", kind: "text", def: "0.7" },
-        { key: "color", label: "Color", kind: "color", def: "#c8ffb0" },
-        { key: "seed", label: "Seed", kind: "number", def: 42 }
-    ],
-    expression: [
-        { key: "r", label: "R expression", kind: "textarea", def: "0.5 + 0.5*sin(x*8 + t*2)" },
-        { key: "g", label: "G expression", kind: "textarea", def: "0.5 + 0.45*sin(y*6 - t*1.5)" },
-        { key: "b", label: "B expression", kind: "textarea", def: "0.35 + 0.35*noise(u*6 + t*0.4, v*6)" },
-        { key: "seed", label: "Seed", kind: "number", def: 7 }
-    ],
-    image: [
-        { key: "__assetUrl", label: "Asset URL (relative)", kind: "text", def: "../assets/test-portrait.gif" },
-        { key: "fit", label: "Fit", kind: "select", options: ["cover", "contain", "stretch"], def: "cover" }
-    ],
-    gif: [
-        { key: "__assetUrl", label: "Asset URL (relative)", kind: "text", def: "../assets/test-portrait.gif" },
-        { key: "fit", label: "Fit", kind: "select", options: ["cover", "contain", "stretch"], def: "cover" }
-    ],
-    video: [
-        { key: "__assetUrl", label: "Asset URL (relative)", kind: "text", def: "../assets/clip.webm" }
-    ],
-    composite: []
-};
-
-function buildSceneForType(type) {
-    const scene = { type };
-    for (const f of FIELD_DEFS[type] || []) {
-        if (f.key.startsWith("__")) continue;
-        scene[f.key] = f.kind === "number" ? Number(f.def) : f.def;
-    }
-    applySpecialConstructors(scene);
-    return scene;
+let designTimer = null;
+function onDesignEdit() {
+    clearTimeout(designTimer);
+    designTimer = setTimeout(() => {
+        rebuildDesignIntoWorking();
+        syncSourceFromWorking();
+        loadToPlayer();
+    }, 350);
 }
 
-/** Turn __-prefixed field values into structured scene properties. */
-function applySpecialConstructors(scene) {
-    if (scene.__from !== undefined) {
-        try { scene.from = JSON.parse(scene.__from); } catch { scene.from = scene.__from; }
-        delete scene.__from;
-    }
-    if (scene.__to !== undefined) {
-        try { scene.to = JSON.parse(scene.__to); } catch { scene.to = scene.__to; }
-        delete scene.__to;
-    }
-    if (scene.__stops !== undefined) {
-        try { scene.stops = JSON.parse(scene.__stops); } catch { /* keep invalid; validator reports */ scene.stops = scene.__stops; }
-        delete scene.__stops;
-    }
-    if (scene.__palette !== undefined) {
-        try { scene.palette = JSON.parse(scene.__palette); } catch { scene.palette = scene.__palette; }
-        delete scene.__palette;
-    }
-    if (scene.__assetUrl !== undefined) {
-        scene.asset = "media";
-        workingRaw.assets = { ...(workingRaw.assets || {}), media: scene.__assetUrl };
-        delete scene.__assetUrl;
-    }
-}
-
-function renderSceneFields() {
-    const type = $("f-type").value;
-    const host = $("scene-fields");
-    host.innerHTML = "";
-    const existing = workingRaw.scene || {};
-    for (const f of FIELD_DEFS[type] || []) {
-        const label = document.createElement("label");
-        label.append(f.label + " ");
-        let input;
-        if (f.kind === "textarea") input = document.createElement("textarea");
-        else if (f.kind === "select") {
-            input = document.createElement("select");
-            for (const o of f.options) {
-                const opt = document.createElement("option");
-                opt.value = o; opt.textContent = o;
-                input.appendChild(opt);
-            }
-            input.value = f.def;
-        } else {
-            input = document.createElement("input");
-            input.type = f.kind === "color" ? "color" : f.kind === "number" ? "number" : "text";
-            input.step = "any";
-            if (f.kind !== "color") input.value = f.def;
-        }
-        // Hydrate from existing scene object where present.
-        let cur = existing[f.key];
-        if (f.key === "__stops") {
-            cur = existing.stops ? JSON.stringify(existing.stops) : f.def;
-            input.value = cur ?? f.def;
-        } else if (f.key === "__palette") {
-            cur = existing.palette ? JSON.stringify(existing.palette) : f.def;
-            input.value = cur ?? f.def;
-        } else if (f.key === "__from") {
-            cur = existing.from !== undefined ? (typeof existing.from === "string" ? existing.from : JSON.stringify(existing.from)) : f.def;
-            input.value = cur;
-        } else if (f.key === "__to") {
-            cur = existing.to !== undefined ? (typeof existing.to === "string" ? existing.to : JSON.stringify(existing.to)) : f.def;
-            input.value = cur;
-        } else if (f.key === "__assetUrl") {
-            const assetName = existing.asset;
-            cur = assetName && workingRaw.assets ? workingRaw.assets[assetName] : f.def;
-            input.value = cur ?? f.def;
-        } else if (existing[f.key] !== undefined && f.kind !== "select") {
-            input.value = String(existing[f.key]);
-        }
-        input.dataset.fieldKey = f.key;
-        input.dataset.kind = f.kind;
-        label.appendChild(input);
-        host.appendChild(label);
-    }
-    if (type === "composite") {
-        const hint = document.createElement("div");
-        hint.className = "hint";
-        hint.textContent = "Composites are authored in the source pane →";
-        host.appendChild(hint);
-    }
-}
-
-/** Write form scene-field values back into workingRaw.scene (in place). */
-function collectSceneFieldsInto(scene) {
-    Object.keys(scene).forEach(k => {
-        if ((FIELD_DEFS[scene.type] || []).some(f => f.key === k)) delete scene[k];
-    });
-    for (const el of $("scene-fields").querySelectorAll("[data-field-key]")) {
-        const key = el.dataset.fieldKey;
-        let v = el.value;
-        if (el.dataset.kind === "number") v = Number(v);
-        scene[key] = v;
-    }
-    applySpecialConstructors(scene);
-}
-
-// ------------------------------------------------------------------
-// Form hydration from workingRaw
-// ------------------------------------------------------------------
-function hydrateForm(raw) {
+function hydrateDesign(raw) {
     const setV = (id, v) => { if (v !== undefined && v !== null && $(id)) $(id).value = v; };
     setV("f-name", raw.meta?.name);
     setV("f-author", raw.meta?.author);
@@ -373,11 +704,12 @@ function hydrateForm(raw) {
     setV("f-lw", q.logicalResolution?.width); setV("f-lh", q.logicalResolution?.height);
     const tl = raw.timeline || {};
     setV("f-duration", tl.duration ?? 8); setV("f-loop", String(tl.loop !== false));
-    const s = raw.scene;
-    if (s && SCENE_TYPES.includes(s.type)) {
-        $("f-type").value = s.type;
-        renderSceneFields();
-    }
+}
+
+function hydrateAll() {
+    hydrateDesign(workingRaw);
+    renderLayers();
+    renderLayerEditor();
 }
 
 // ------------------------------------------------------------------
@@ -385,18 +717,15 @@ function hydrateForm(raw) {
 // ------------------------------------------------------------------
 function updateTransport() {
     const dur = player ? player.getDuration() : 0;
-    const scrubber = $("scrubber");
-    scrubber.max = String(Math.max(1, dur));
+    $("scrubber").max = String(Math.max(1, dur));
     updateTLabel();
 }
-
 function updateTLabel() {
     const t = player ? player.getTime() : 0;
     const dur = player ? player.getDuration() : 0;
-    $("t-label").textContent = `${t.toFixed(1)}s / ${dur.toFixed(1)}s`;
-    if (!scrubbing) $("scrubber").value = String(Math.min(t, dur));
+    $("t-label").textContent = `${t.toFixed(1)}s`;
+    if (!scrubbing) $("scrubber").value = String(Math.min(t, Math.max(1, dur)));
 }
-
 setInterval(updateTLabel, 250);
 
 $("btn-play").addEventListener("click", () => {
@@ -405,7 +734,6 @@ $("btn-play").addEventListener("click", () => {
     if (playing) player.play(); else player.pause();
     $("btn-play").innerHTML = playing ? "&#10074;&#10074;" : "&#9654;";
 });
-
 $("scrubber").addEventListener("pointerdown", () => { scrubbing = true; });
 $("scrubber").addEventListener("input", e => {
     if (!player) return;
@@ -413,29 +741,42 @@ $("scrubber").addEventListener("input", e => {
     updateTLabel();
 });
 $("scrubber").addEventListener("change", () => { scrubbing = false; });
-
 document.addEventListener("keydown", e => {
-    if (e.code === "Space" && e.target.tagName !== "TEXTAREA" && e.target.tagName !== "INPUT") {
+    if (e.code === "Space" && !/TEXTAREA|INPUT|SELECT/.test(e.target.tagName)) {
         e.preventDefault();
         $("btn-play").click();
     }
 });
 
 // ------------------------------------------------------------------
-// Presets
+// Tabs
+// ------------------------------------------------------------------
+document.querySelectorAll("#tabs button").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll("#tabs button").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tabpane").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        $(`[data-pane="${btn.dataset.tab}"]`).classList.add("active");
+    });
+});
+function switchTab(name) {
+    $(`#tabs button[data-tab="${name}"]`).click();
+}
+
+// ------------------------------------------------------------------
+// Presets (target = selected layer)
 // ------------------------------------------------------------------
 function initPresets() {
     const sel = $("preset-select");
     for (const p of listPresets()) {
         const opt = document.createElement("option");
         opt.value = p.name;
-        opt.textContent = `${p.name} — ${p.description}`;
+        opt.textContent = p.name;
         sel.appendChild(opt);
     }
     sel.addEventListener("change", renderPresetParams);
     renderPresetParams();
 }
-
 function renderPresetParams() {
     const name = $("preset-select").value;
     const preset = listPresets().find(p => p.name === name);
@@ -443,6 +784,7 @@ function renderPresetParams() {
     host.innerHTML = "";
     for (const [k, def] of Object.entries(preset.params)) {
         const label = document.createElement("label");
+        label.className = "field";
         label.append(`${k} `);
         const input = document.createElement("input");
         input.type = "number"; input.step = "any"; input.value = def;
@@ -451,47 +793,46 @@ function renderPresetParams() {
         host.appendChild(label);
     }
 }
-
 $("btn-preset").addEventListener("click", () => {
     const name = $("preset-select").value;
     const params = {};
     for (const el of $("preset-params").querySelectorAll("[data-param-key]")) {
         params[el.dataset.paramKey] = parseFloat(el.value);
     }
-    const target = presetTarget();
-    if (!target) return;
+    const frag = targetFragment();
+    if (!frag) return;
     try {
-        const patched = applyPreset(target, name, params);
-        Object.assign(target, patched);
+        Object.assign(frag, applyPreset(JSON.parse(JSON.stringify(frag)), name, params));
+        switchTab("layers");
         syncSourceFromWorking();
         loadToPlayer();
+        setStatus(`applied "${name}"`, "ok");
     } catch (e) {
         setStatus("preset failed: " + e.message, "err");
     }
 });
 
-/** The fragment a preset should modify: scene itself, or a chosen layer. */
-function presetTarget() {
-    if (!workingRaw || !workingRaw.scene) return null;
-    if (workingRaw.scene.type === "composite" && Array.isArray(workingRaw.scene.layers)) {
-        const idx = prompt(`Layer index (0-${workingRaw.scene.layers.length - 1}):`, "0");
-        const i = parseInt(idx);
-        if (!(i >= 0 && i < workingRaw.scene.layers.length)) return null;
-        return workingRaw.scene.layers[i];
-    }
-    return workingRaw.scene;
-}
-
 // ------------------------------------------------------------------
 // Gallery
 // ------------------------------------------------------------------
-const GALLERY = [
-    "color", "gradient", "image", "dots", "flowfield", "fireflies",
-    "parallax", "plasma", "procedural", "rain", "clip", "composite"
-];
+const GALLERY = ["flowfield", "fireflies", "parallax", "plasma", "dots",
+    "gradient", "procedural", "rain", "clip", "composite"];
+const GALLERY_LABELS = {
+    flowfield: "green flow", fireflies: "fireflies", parallax: "parallax mist",
+    plasma: "plasma math", dots: "dot grid"
+};
 
 async function initGallery() {
-    const host = $("gallery");
+    const host = $("layer-list");
+    const galTitle = document.createElement("h2");
+    galTitle.textContent = "Examples — tap to load";
+    galTitle.id = "gallery-title";
+    host.after(galTitle);
+    const gal = document.createElement("div");
+    gal.className = "layer-actions";
+    gal.id = "gallery";
+    galTitle.after(gal);
+
     for (const name of GALLERY) {
         try {
             const res = await fetch(`../scenes/${name}.amo`, { method: "HEAD" });
@@ -499,20 +840,24 @@ async function initGallery() {
         } catch { continue; }
         const btn = document.createElement("button");
         btn.className = "secondary";
-        btn.textContent = name;
+        btn.textContent = GALLERY_LABELS[name] || name;
         btn.addEventListener("click", async () => {
             try {
                 const res = await fetch(`../scenes/${name}.amo`);
-                const raw = JSON.parse(await res.text());
-                workingRaw = raw;
-                hydrateForm(raw);
+                workingRaw = JSON.parse(await res.text());
+                parseAmo(workingRaw);
+                selected = isComposite()
+                    ? { kind: "layer", index: workingRaw.scene.layers.length - 1 }
+                    : { kind: "scene", index: -1 };
+                hydrateAll();
                 syncSourceFromWorking();
                 loadToPlayer();
+                window.scrollTo(0, 0);
             } catch (e) {
                 setStatus("gallery load failed: " + e.message, "err");
             }
         });
-        host.appendChild(btn);
+        gal.appendChild(btn);
     }
 }
 
@@ -520,8 +865,7 @@ async function initGallery() {
 // Export / import
 // ------------------------------------------------------------------
 $("btn-export").addEventListener("click", () => {
-    const name = ((workingRaw.meta && workingRaw.meta.name) || "scene")
-        .replace(/[^\w-]+/g, "-").toLowerCase();
+    const name = ((workingRaw?.meta?.name) || "scene").replace(/[^\w-]+/g, "-").toLowerCase();
     const blob = new Blob([JSON.stringify(workingRaw, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -529,15 +873,17 @@ $("btn-export").addEventListener("click", () => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });
-
 $("btn-import").addEventListener("click", () => $("file-import").click());
 $("file-import").addEventListener("change", async e => {
     const file = e.target.files[0];
     if (!file) return;
     try {
         workingRaw = JSON.parse(await file.text());
-        parseAmo(workingRaw);   // validate
-        hydrateForm(workingRaw);
+        parseAmo(workingRaw);
+        selected = isComposite()
+            ? { kind: "layer", index: workingRaw.scene.layers.length - 1 }
+            : { kind: "scene", index: -1 };
+        hydrateAll();
         syncSourceFromWorking();
         loadToPlayer();
     } catch (err) {
@@ -549,45 +895,44 @@ $("file-import").addEventListener("change", async e => {
 // ------------------------------------------------------------------
 // Wire-up
 // ------------------------------------------------------------------
-function num(id, fallback) {
-    const v = parseFloat($(id).value);
-    return Number.isFinite(v) ? v : fallback;
-}
-function val(id) { return $(id).value; }
-
-for (const id of ["f-name", "f-author"]) $(id).addEventListener("input", rebuildFromForm);
-for (const id of ["f-type"]) $(id).addEventListener("change", rebuildFromForm);
-document.querySelectorAll("#form-pane input, #form-pane select, #form-pane textarea")
+for (const id of ["f-name", "f-author"]) $(id).addEventListener("input", onDesignEdit);
+document.querySelectorAll("[data-pane='design'] input, [data-pane='design'] select")
     .forEach(el => {
-        if (["f-name", "f-author", "f-type"].includes(el.id)) return;
-        if (el.closest("#scene-fields")) return;
-        if (el.closest("#preset-params")) return;
-        el.addEventListener("input", rebuildFromForm);
-        el.addEventListener("change", rebuildFromForm);
+        if (el.id === "f-name" || el.id === "f-author") return;
+        el.addEventListener("input", onDesignEdit);
+        el.addEventListener("change", onDesignEdit);
     });
-$("scene-fields").addEventListener("input", () => { rebuildFromForm(); });
-$("scene-fields").addEventListener("change", () => { rebuildFromForm(); });
-
 sourceEl.addEventListener("input", onSourceEdit);
 
 (function init() {
-    // Populate type selector.
-    const sel = $("f-type");
-    for (const t of SCENE_TYPES) {
-        const opt = document.createElement("option");
-        opt.value = t; opt.textContent = t;
-        sel.appendChild(opt);
-    }
     boot();
-    workingRaw = defaultScene();
-    hydrateForm(workingRaw);
-    renderSceneFields();
+    workingRaw = {
+        amo: 1,
+        meta: { name: "my scene", author: "" },
+        display: {
+            gamma: 1.7, spill: 0.4,
+            brightness: { active: 1, inactive: 0.035 },
+            bloom: { intensity: 0.3, threshold: 0.42, radius: 14 }
+        },
+        quality: { fps: 30 },
+        timeline: { duration: 20, loop: true },
+        scene: { type: "composite", layers: [
+            { type: "flow", palette: ["#010803", "#07230f", "#12471f", "#2f8f4a"],
+              scale: 3, speed: 0.08, warp: 0.6, octaves: 3, seed: 4 },
+            { type: "particles", behavior: "fireflies", count: 60, seed: 99,
+              color: "#c8ffb0", glow: 0.85, speed: 0.15, blend: "add" }
+        ] }
+    };
+    selected = { kind: "layer", index: 1 };
+    hydrateDesign(workingRaw);
+    renderLayers();
+    renderLayerEditor();
     syncSourceFromWorking();
     initPresets();
-    initGallery();
     loadToPlayer().then(() => {
         playing = true;
         $("btn-play").innerHTML = "&#10074;&#10074;";
         if (player) player.play();
     });
+    initGallery();
 })();

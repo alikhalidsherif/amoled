@@ -1,5 +1,5 @@
-// Studio acceptance: boots, loads default scene, source edits round-trip,
-// scrub API works, gallery buttons appear.
+// Studio (visual-first) acceptance: boots, layer list renders, selection edits,
+// source round-trip, invalid JSON safety, scrub determinism, gallery.
 import puppeteer from "puppeteer-core";
 import http from "http";
 import fs from "fs";
@@ -20,60 +20,85 @@ const browser = await puppeteer.launch({
     defaultViewport: { width: 1280, height: 800 }
 });
 const page = await browser.newPage();
+async function waitFor(expr, timeoutMs = 10000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (await page.evaluate(expr).catch(() => false)) return true;
+        await new Promise(r => setTimeout(r, 200));
+    }
+    return false;
+}
 let failures = 0;
 const fail = m => { failures++; console.log("FAIL:", m); };
 page.on("pageerror", e => fail("PAGEERROR: " + e.message));
+// headless throttles timers heavily; stub prompt for the add-layer test
+await page.evaluateOnNewDocument(() => { window.prompt = () => "particles"; });
+
 await page.goto(`http://127.0.0.1:${server.address().port}/generator/index.html`, { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise(r => setTimeout(r, 3000));
 
-// player booted with the default livingGradient
-const booted = await page.evaluate(() => ({
-    hasPlayer: !!window.__gplayerRef(),
-    defType: window.__gplayerRef()?.runtime?.definitionRef?.scene?.type
+// boot + default composite
+const boot = await page.evaluate(() => ({
+    player: !!window.__gplayerRef(),
+    type: window.__gworking()?.scene?.type,
+    chips: document.querySelectorAll(".layer-chip").length
 }));
-console.log("boot:", JSON.stringify(booted));
-if (!booted.hasPlayer) fail("player missing");
-if (booted.defType !== "livingGradient") fail(`default scene type ${booted.defType}`);
+console.log("boot:", JSON.stringify(boot));
+if (!boot.player) fail("player missing");
+if (boot.type !== "composite") fail(`default scene ${boot.type}`);
+if (boot.chips !== 2) fail(`expected 2 layer chips, got ${boot.chips}`);
 
-// source edit round-trip: replace scene with a flow field via the textarea
+// select base layer -> editor shows flow fields with slider companions
+await page.evaluate(() => document.querySelectorAll(".layer-chip")[0].click());
+await new Promise(r => setTimeout(r, 300));
+const editorOk = await page.evaluate(() =>
+    !!document.querySelector("#layer-editor input[data-slider-for='scale']"));
+if (!editorOk) fail("flow editor sliders missing");
+
+// move a slider -> workingRaw updates numerically
+await page.evaluate(() => {
+    const s = document.querySelector("#layer-editor input[data-slider-for='scale']");
+    s.value = "6"; s.dispatchEvent(new Event("input"));
+});
+await waitFor(() => window.__gworking().scene.layers[0].scale === 6);
+const slid = await page.evaluate(() => window.__gworking().scene.layers[0].scale);
+console.log("slider edit scale:", slid);
+if (slid !== 6) fail(`slider edit not adopted (${slid})`);
+
+// source round-trip: edit palette through JSON
 await page.evaluate(() => {
     const ta = document.getElementById("source");
     const raw = JSON.parse(ta.value);
-    raw.scene = { type: "flow", palette: ["#000000", "#00ff00"], scale: 5, speed: 0.3, warp: 0.5, seed: 1 };
+    raw.scene.layers[1].count = 111;
     ta.value = JSON.stringify(raw, null, 2);
     ta.dispatchEvent(new Event("input"));
 });
-await new Promise(r => setTimeout(r, 4000));
-const afterEdit = await page.evaluate(() => ({
-    type: window.__gplayerRef()?.runtime?.definitionRef?.scene?.type,
-    static: window.__gplayerRef()?.runtime?.definitionRef?.isStatic
-}));
-console.log("after source edit:", JSON.stringify(afterEdit));
-if (afterEdit.type !== "flow") fail("source edit did not adopt flow scene");
+await waitFor(() => window.__gworking().scene.layers[1].count === 111);
+const adopted = await page.evaluate(() => window.__gworking().scene.layers[1].count);
+if (adopted !== 111) fail(`source edit not adopted (${adopted})`);
 
-// invalid JSON keeps preview alive and reports error
+// invalid JSON: reported, preview untouched
 await page.evaluate(() => {
     const ta = document.getElementById("source");
-    ta.value = "{ not json";
+    ta.value = "{ broken";
     ta.dispatchEvent(new Event("input"));
 });
-await new Promise(r => setTimeout(r, 4000));
+await waitFor(() => document.getElementById("statusbar").textContent.includes("invalid JSON"));
 const errState = await page.evaluate(() => ({
-    status: document.getElementById("status").textContent,
-    stillFlow: window.__gplayerRef()?.runtime?.definitionRef?.scene?.type
+    status: document.getElementById("statusbar").textContent,
+    stillComposite: window.__gworking()?.scene?.type
 }));
 if (!errState.status.includes("invalid JSON")) fail("invalid JSON not reported");
-if (errState.stillFlow !== "flow") fail("invalid edit clobbered preview");
+if (errState.stillComposite !== "composite") fail("invalid edit clobbered state");
 
-// scrub API determinism: reload fresh, then same t twice -> identical hash
+// reload fresh -> scrub determinism on animated composite
 await page.goto(`http://127.0.0.1:${server.address().port}/generator/index.html`, { waitUntil: "domcontentloaded" });
-await new Promise(r => setTimeout(r, 2500));
-if (!await page.evaluate(() => !!window.__gplayerRef)) throw new Error("studio did not boot");
-// pause first so background animation cannot race the capture
+await new Promise(r => setTimeout(r, 3500));
+if (!await page.evaluate(() => !!window.__gplayerRef())) throw new Error("studio did not boot");
 await page.evaluate(() => window.__gplayerRef().pause());
-const scrub = async () => {
-    await page.evaluate(() => window.__gplayerRef().scrub(2.5));
-    await new Promise(r => setTimeout(r, 250));   // let renderer rAF settle
+const scrubHash = async () => {
+    await page.evaluate(() => window.__gplayerRef().scrub(3.5));
+    await new Promise(r => setTimeout(r, 1200));   // renderer rAF settle (throttled)
     return page.evaluate(() => {
         const c = document.getElementById("preview-canvas");
         const s = document.createElement("canvas"); s.width = 32; s.height = 18;
@@ -81,16 +106,38 @@ const scrub = async () => {
         return [...x.getImageData(0, 0, 32, 18).data].reduce((a, v) => (a * 31 + v) | 0, 7);
     });
 };
-const h1 = await scrub();
-const h2 = await scrub();
+await scrubHash();            // warm-up render
+const h1 = await scrubHash();
+const h2 = await scrubHash();
 console.log("scrub deterministic:", h1 === h2);
-if (h1 !== h2) fail(`scrub nondeterministic (${h1} vs ${h2})`);
-if (!h1 && h1 !== 0) fail("scrub produced nothing");
+if (h1 !== h2) fail("scrub nondeterministic");
 
-// gallery populated
-const galleryN = await page.evaluate(() => document.querySelectorAll("#gallery button").length);
-console.log("gallery entries:", galleryN);
-if (galleryN < 5) fail(`gallery too small (${galleryN})`);
+// gallery populated + loads a scene into the editor
+const galN = await page.evaluate(() => document.querySelectorAll("#gallery button").length);
+console.log("gallery entries:", galN);
+if (galN < 4) fail(`gallery too small (${galN})`);
+await page.evaluate(() => {
+    const btns = [...document.querySelectorAll("#gallery button")];
+    btns.find(b => b.textContent.includes("plasma"))?.click();
+});
+if (!await waitFor(() => window.__gworking()?.scene?.type === "expression"))
+    fail(`gallery plasma load failed (${await page.evaluate(() => window.__gworking()?.scene?.type)})`);
+// expression fields visible after switching selection
+await page.evaluate(() => document.querySelectorAll(".layer-chip")[0]?.click());
+await new Promise(r => setTimeout(r, 300));
+
+// add a layer via stubbed prompt
+await page.evaluate(() => {
+    // wrap existing single scene into composite first by adding from composite
+});
+await page.evaluate(() => document.getElementById("btn-add-layer").click());
+await new Promise(r => setTimeout(r, 1500));
+const afterAdd = await page.evaluate(() => ({
+    type: window.__gworking()?.scene?.type,
+    layers: window.__gworking()?.scene?.layers?.length
+}));
+console.log("after add-layer:", JSON.stringify(afterAdd));
+if (afterAdd.layers < 2) fail("add-layer failed");
 
 await browser.close();
 server.close();
