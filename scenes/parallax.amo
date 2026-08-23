@@ -1,0 +1,71 @@
+{
+  "amo": 1,
+  "meta": {
+    "name": "parallax breathing",
+    "author": "ali"
+  },
+  "display": {
+    "gamma": 1.5,
+    "spill": 0.38,
+    "bloom": {
+      "intensity": 0.3
+    }
+  },
+  "quality": {
+    "fps": 30
+  },
+  "scene": {
+    "type": "composite",
+    "layers": [
+      {
+        "type": "livingGradient",
+        "stops": [
+          {
+            "at": 0,
+            "color": "#001208"
+          },
+          {
+            "at": 0.6,
+            "color": {
+              "r": "0.03+0.03*sin(t*0.3)",
+              "g": "0.16+0.05*sin(t*0.22)",
+              "b": "0.06"
+            }
+          },
+          {
+            "at": 1,
+            "color": "#123f20"
+          }
+        ],
+        "direction": "vertical",
+        "wobble": "0.04*sin(t*0.4)"
+      },
+      {
+        "type": "pattern",
+        "pattern": "halftone",
+        "signal": "v",
+        "size": 9,
+        "thickness": 0.9,
+        "fg": "#0aff66",
+        "bg": "#000000",
+        "opacity": 0.25,
+        "blend": "screen",
+        "offset": {
+          "x": "-0.02*sin(t*0.13)",
+          "y": 0
+        }
+      },
+      {
+        "type": "particles",
+        "behavior": "snow",
+        "count": 50,
+        "seed": 21,
+        "color": "#bfffd9",
+        "glow": 0.7,
+        "speed": 0.1,
+        "blend": "screen",
+        "opacity": 0.8
+      }
+    ]
+  }
+}

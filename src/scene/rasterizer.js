@@ -107,6 +107,308 @@ function axisCoord(dir, u, v) {
 }
 
 // ------------------------------------------------------------------
+// Pattern generators (PLAN-CREATIVE.md §B1)
+// ------------------------------------------------------------------
+
+const PATTERN_VARIANTS = new Set(["dots", "checks", "stripes", "scanlines", "halftone"]);
+const patternCache = new WeakMap();
+
+function getPatternProgram(scene) {
+    let prog = patternCache.get(scene);
+    if (!prog) {
+        prog = {
+            fg: compileColorSlot(scene.fg),
+            bg: compileColorSlot(scene.bg),
+            signal: typeof scene.signal === "string"
+                ? compileExpression(scene.signal).eval : null
+        };
+        patternCache.set(scene, prog);
+    }
+    return prog;
+}
+
+function smoothCov(edge, softness, d) {
+    // 1 inside (d < edge), 0 outside; `softness` feathers the boundary.
+    const hi = edge + softness, lo = edge - softness;
+    if (hi <= lo) return d < edge ? 1 : 0;
+    if (d >= hi) return 0;
+    if (d <= lo) return 1;
+    const u = (hi - d) / (hi - lo);
+    return u * u * (3 - 2 * u);
+}
+
+function rasterizePattern(scene, w, h, t, definition, out) {
+    const prog = getPatternProgram(scene);
+    const env = sceneEnv(definition, t, w, h, scene.seed);
+    const variant = scene.pattern || "dots";
+
+    // Per-frame resolution of scalar slots when they are constants (common);
+    // expression slots fall into the per-pixel path below.
+    const numOrExpr = spec => (typeof spec === "number" ? () => spec : null);
+    const sizeF = numOrExpr(scene.size) || compileExpression(String(scene.size)).eval;
+    const thickF = scene.thickness === undefined ? null
+        : (numOrExpr(scene.thickness) || compileExpression(String(scene.thickness)).eval);
+    const softF = scene.softness === undefined ? null
+        : (numOrExpr(scene.softness) || compileExpression(String(scene.softness)).eval);
+    const angleF = scene.angle === undefined ? null
+        : (numOrExpr(scene.angle) || compileExpression(String(scene.angle)).eval);
+    const offXF = scene.offset && scene.offset.x !== undefined && typeof scene.offset.x !== "number"
+        ? compileExpression(scene.offset.x).eval : null;
+    const offYF = scene.offset && scene.offset.y !== undefined && typeof scene.offset.y !== "number"
+        ? compileExpression(scene.offset.y).eval : null;
+
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+        env.y = y;
+        env.v = h > 1 ? y / (h - 1) : 0;
+        for (let x = 0; x < w; x++) {
+            env.x = x;
+            env.u = w > 1 ? x / (w - 1) : 0;
+
+            const size = Math.max(1, sizeF(env.x, env.y, env));
+            const thickness = thickF ? clampf(thickF(env.x, env.y, env)) : 0.5;
+            const softness = softF ? Math.max(0, softF(env.x, env.y, env)) : 0;
+            const angle = angleF ? angleF(env.x, env.y, env) : 0;
+            const offX = offXF ? offXF(env.x, env.y, env) * w : (scene.offset ? (scene.offset.x || 0) * w : 0);
+            const offY = offYF ? offYF(env.x, env.y, env) * h : (scene.offset ? (scene.offset.y || 0) * h : 0);
+
+            // Rotate sample point about canvas center, after translation.
+            const px = x + 0.5 - offX - w / 2;
+            const py = y + 0.5 - offY - h / 2;
+            let sx = px, sy = py;
+            if (angle !== 0) {
+                const c = Math.cos(angle), s = Math.sin(angle);
+                sx = c * px - s * py;
+                sy = s * px + c * py;
+            }
+            sx += w / 2;
+            sy += h / 2;
+
+            const fx = (sx % size + size) % size / size;   // [0,1)
+            const fy = (sy % size + size) % size / size;
+            const cellX = Math.floor(sx / size);
+            const cellY = Math.floor(sy / size);
+
+            let cov = 0;
+            switch (variant) {
+                case "dots": {
+                    const dxp = fx - 0.5, dyp = fy - 0.5;
+                    cov = smoothCov(thickness * 0.5, softness, Math.hypot(dxp, dyp));
+                    break;
+                }
+                case "checks": {
+                    const parity = (Math.abs(cellX % 2) + Math.abs(cellY % 2)) % 2;
+                    const d = Math.min(fx, 1 - fx, fy, 1 - fy) * 2;   // distance to cell border
+                    cov = parity === 0 ? smoothCov(1, softness * 2 + 1e-6, d) : 0;
+                    break;
+                }
+                case "stripes": {
+                    cov = smoothCov(thickness * 0.5, softness, Math.abs(fy - 0.5));
+                    break;
+                }
+                case "scanlines": {
+                    // Horizontal lines with size counted in logical rows.
+                    const rowPhase = ((sy % 1) + 1) % 1;
+                    cov = smoothCov(thickness * 0.5, softness, Math.abs(rowPhase - 0.5));
+                    break;
+                }
+                case "halftone": {
+                    let sig = 0.5;
+                    if (prog.signal) sig = clampf(prog.signal(env.x, env.y, env));
+                    const dxp = fx - 0.5, dyp = fy - 0.5;
+                    cov = smoothCov(thickness * 0.5 * sig, softness, Math.hypot(dxp, dyp));
+                    break;
+                }
+            }
+
+            let col;
+            if (cov <= 0) col = bgColor(prog, env.x, env.y, env);
+            else if (cov >= 1) col = fgColor(prog, env.x, env.y, env);
+            else {
+                const f = fgColor(prog, env.x, env.y, env);
+                const b = bgColor(prog, env.x, env.y, env);
+                col = {
+                    r: b.r + (f.r - b.r) * cov,
+                    g: b.g + (f.g - b.g) * cov,
+                    b: b.b + (f.b - b.b) * cov
+                };
+            }
+            out[i++] = Math.round(col.r * 255);
+            out[i++] = Math.round(col.g * 255);
+            out[i++] = Math.round(col.b * 255);
+        }
+    }
+    return out;
+}
+
+function clampf(v) {
+    return Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0;
+}
+function bgColor(prog, x, y, env) {
+    return prog.bg.allConst ? prog.bg : prog.bg.eval(x, y, env);
+}
+function fgColor(prog, x, y, env) {
+    return prog.fg.allConst ? prog.fg : prog.fg.eval(x, y, env);
+}
+
+// ------------------------------------------------------------------
+// Particles (PLAN-CREATIVE.md §B3) — stateless, deterministic.
+// Position of particle i at time t is a closed-form function of hashed
+// constants, so scrubbing/seeking is exact and output is reproducible.
+// ------------------------------------------------------------------
+
+import { mulberry32 } from "./prng.js";
+
+function rasterizeParticles(scene, w, h, t, definition, out) {
+    out.fill(0);
+    const count = scene.count | 0;
+    if (count <= 0) return out;
+
+    const env = sceneEnv(definition, t, w, h, scene.seed);
+    const seed = scene.seed | 0;
+    const behavior = scene.behavior || "drift";
+    const glow = typeof scene.glow === "number" ? scene.glow
+        : (typeof scene.glow === "string"
+            ? clampf(compileExpression(scene.glow).eval(env.x, env.y, env)) : 0.6);
+    const baseSpeed = typeof scene.speed === "number" ? scene.speed
+        : (typeof scene.speed === "string"
+            ? Math.max(0, compileExpression(String(scene.speed)).eval(env.x, env.y, env)) : 0.2);
+    const palette = Array.isArray(scene.color) ? scene.color : [scene.color];
+
+    for (let i = 0; i < count; i++) {
+        const rnd = mulberry32((seed * 7919 + i * 2654435761) >>> 0);
+        const px0 = rnd(), py0 = rnd(), ph = rnd() * Math.PI * 2;
+        const jit = 0.4 + rnd() * 1.2;          // per-particle speed jitter
+        const sizeFrac = rnd();
+        const col = palette[i % palette.length];
+
+        // Per-particle position (normalized coords), by behavior.
+        let x, y, brightness = 1;
+        const sp = baseSpeed * jit;
+        switch (behavior) {
+            case "orbit": {
+                const cxp = 0.2 + px0 * 0.6, cyp = 0.2 + py0 * 0.6;
+                const rr = 0.05 + sizeFrac * 0.25;
+                x = cxp + Math.cos(ph + sp * t / Math.max(0.02, rr)) * rr;
+                y = cyp + Math.sin(ph + sp * t / Math.max(0.02, rr)) * rr * 0.7;
+                break;
+            }
+            case "rise":
+                x = wrap01(px0 + 0.03 * Math.sin(t * sp * 3 + ph));
+                y = wrap01(py0 - sp * 0.25 * t);
+                break;
+            case "fall":
+            case "snow":
+                x = wrap01(px0 + (behavior === "snow" ? 0.06 : 0.02) * Math.sin(t * sp * 2 + ph));
+                y = wrap01(py0 + sp * (behavior === "snow" ? 0.08 : 0.18) * t);
+                break;
+            case "fireflies": {
+                x = wrap01(px0 + 0.05 * Math.sin(t * sp + ph) );
+                y = wrap01(py0 + 0.04 * Math.cos(t * sp * 0.8 + ph * 2));
+                brightness = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * (1 + sp * 3) + ph * 6));
+                break;
+            }
+            default: { // drift
+                x = wrap01(px0 + sp * 0.06 * t);
+                y = wrap01(py0 + sp * 0.015 * Math.sin(t * 0.7 + ph));
+                break;
+            }
+        }
+
+        // Splat a soft disc.
+        const rNorm = scene.size.min + (scene.size.max - scene.size.min) * sizeFrac;
+        const rPx = Math.max(0.75, rNorm * h);
+        const falloff = 1 + 3 * (1 - glow);   // higher = harder edge
+        const cxp = x * w, cyp = y * h;
+        const x0 = Math.max(0, Math.floor(cxp - rPx * 2));
+        const x1 = Math.min(w - 1, Math.ceil(cxp + rPx * 2));
+        const y0 = Math.max(0, Math.floor(cyp - rPx * 2));
+        const y1 = Math.min(h - 1, Math.ceil(cyp + rPx * 2));
+
+        for (let yy = y0; yy <= y1; yy++) {
+            for (let xx = x0; xx <= x1; xx++) {
+                const d = Math.hypot(xx + 0.5 - cxp, yy + 0.5 - cyp);
+                if (d >= rPx * 2) continue;
+                let k = 1 - d / (rPx * 2);        // 1 center -> 0 edge
+                k = Math.pow(k, falloff);
+                const I = k * brightness;
+                const j = (yy * w + xx) * 3;
+                out[j] += col.r * 255 * I;
+                out[j + 1] += col.g * 255 * I;
+                out[j + 2] += col.b * 255 * I;
+            }
+        }
+    }
+    return out;
+}
+
+function wrap01(v) {
+    return v - Math.floor(v);
+}
+
+// ------------------------------------------------------------------
+// Flow field / living noise (PLAN-CREATIVE.md §B2)
+// ------------------------------------------------------------------
+
+import { fbm } from "./prng.js";
+
+function rasterizeFlow(scene, w, h, t, definition, out) {
+    const env = sceneEnv(definition, t, w, h, scene.seed);
+    const pal = scene.palette;                       // frozen [{r,g,b}] consts
+    const segs = pal.length - 1;
+    const oct = scene.octaves | 0;
+    const seed = scene.seed | 0;
+
+    const scalar = (spec, fallback) => {
+        if (spec === undefined || spec === null) return () => fallback;
+        return typeof spec === "number" ? () => spec : compileExpression(String(spec)).eval;
+    };
+    const scaleF = scalar(scene.scale, 3.5);
+    const speedF = scalar(scene.speed, 0.12);
+    const warpF = scalar(scene.warp, 0.5);
+    const contrastF = scalar(scene.contrast, 1);
+
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+        env.y = y;
+        env.v = h > 1 ? y / (h - 1) : 0;
+        for (let x = 0; x < w; x++) {
+            env.x = x;
+            env.u = w > 1 ? x / (w - 1) : 0;
+
+            const sc = Math.max(0.05, scaleF(env.x, env.y, env));
+            const sp = speedF(env.x, env.y, env);
+            const wp = Math.max(0, warpF(env.x, env.y, env));
+            let p;
+            if (wp > 0) {
+                // Domain warping: fbm(p + w * vec(fbm(p+a), fbm(p+b))).
+                const nx = env.u * sc, ny = env.v * sc;
+                const wx = fbm(seed + 7777, nx * 0.7 + 5.2, ny * 0.7 + 1.3, oct);
+                const wy = fbm(seed + 8888, nx * 0.7 - 3.1, ny * 0.7 + 4.7, oct);
+                p = fbm(seed, nx + wp * wx * 2, ny + wp * wy * 2 + sp * env.t, oct);
+            } else {
+                p = fbm(seed, env.u * sc, env.v * sc + sp * env.t, oct);
+            }
+
+            const contrast = contrastF(env.x, env.y, env);
+            p = Math.min(1, Math.max(0, 0.5 + (p - 0.5) * contrast));
+
+            // Palette ramp with smoothstep between stops.
+            const pos = p * segs;
+            let k = Math.floor(pos);
+            if (k >= segs) k = segs - 1;
+            let f = pos - k;
+            f = f * f * (3 - 2 * f);
+            const A = pal[k], B = pal[k + 1];
+            out[i++] = Math.round((A.r + (B.r - A.r) * f) * 255);
+            out[i++] = Math.round((A.g + (B.g - A.g) * f) * 255);
+            out[i++] = Math.round((A.b + (B.b - A.b) * f) * 255);
+        }
+    }
+    return out;
+}
+
+// ------------------------------------------------------------------
 // livingGradient — multi-stop animated gradient with wobble
 // ------------------------------------------------------------------
 
@@ -318,6 +620,12 @@ export function rasterizeScene(scene, definition, t, size, assets, out) {
             return rasterizeGradient(scene, w, h, t, definition, out);
         case "livingGradient":
             return rasterizeLivingGradient(scene, w, h, t, definition, out);
+        case "pattern":
+            return rasterizePattern(scene, w, h, t, definition, out);
+        case "flow":
+            return rasterizeFlow(scene, w, h, t, definition, out);
+        case "particles":
+            return rasterizeParticles(scene, w, h, t, definition, out);
         case "expression":
             return rasterizeExpression(definition || { quality: { fps: 30 } }, scene, w, h, t, out);
         case "image":

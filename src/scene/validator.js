@@ -18,7 +18,7 @@ export class AmoError extends Error {
 
 const KNOWN_TOP_LEVEL = new Set(["amo", "meta", "display", "quality", "assets", "scene", "timeline"]);
 const KNOWN_DISPLAY = new Set(["pitch", "gamma", "brightness", "spill", "emitters", "bloom", "pentile"]);
-const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "expression", "composite"]);
+const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "flow", "particles", "expression", "composite"]);
 const KNOWN_FIT = new Set(["cover", "contain", "stretch"]);
 const KNOWN_DIRECTIONS = new Set(["vertical", "horizontal", "diagonal", "radial"]);
 const KNOWN_EASINGS = new Set(["linear", "smoothstep", "easeIn", "easeOut"]);
@@ -160,7 +160,9 @@ const KNOWN_FIELDS_FOR_TYPE = {
     image: ["type", "asset", "fit"],
     gif: ["type", "asset", "fit"],
     video: ["type", "asset", "fit", "muted"],
-    pattern: ["type", "pattern"],
+    pattern: ["type", "pattern", "size", "thickness", "fg", "bg", "softness", "angle", "offset", "signal", "seed"],
+    flow: ["type", "palette", "scale", "speed", "warp", "octaves", "contrast", "seed"],
+    particles: ["type", "count", "behavior", "size", "speed", "color", "glow", "seed"],
     expression: ["type", "r", "g", "b", "seed"],
     composite: ["type", "layers"]
 };
@@ -242,7 +244,80 @@ function normalizeSceneContent(s, path, warnings, assets) {
         scene.asset = s.asset;
         scene.muted = s.muted !== false;
     } else if (s.type === "pattern") {
-        scene.pattern = typeof s.pattern === "string" ? s.pattern : "dots";
+        const KNOWN_PATTERNS = new Set(["dots", "checks", "stripes", "scanlines", "halftone"]);
+        scene.pattern = typeof s.pattern === "string" && KNOWN_PATTERNS.has(s.pattern) ? s.pattern : "dots";
+        scene.size = evalueNum(s.size, `${path}.size`, 2, 256, 8, warnings);
+        scene.thickness = evalueNum(s.thickness, `${path}.thickness`, 0, 1, 0.5, warnings);
+        if (s.softness !== undefined && s.softness !== null) {
+            scene.softness = evalueNum(s.softness, `${path}.softness`, 0, 0.5, 0, warnings);
+        }
+        if (s.angle !== undefined && s.angle !== null) {
+            scene.angle = evalueNum(s.angle, `${path}.angle`, -64, 64, 0, warnings);
+        }
+        if (s.offset !== undefined && s.offset !== null) {
+            if (typeof s.offset !== "object") fail(`${path}.offset`, "expected {x,y}");
+            scene.offset = Object.freeze({
+                x: evalueNum(s.offset.x, `${path}.offset.x`, -4, 4, 0, warnings),
+                y: evalueNum(s.offset.y, `${path}.offset.y`, -4, 4, 0, warnings)
+            });
+        }
+        scene.fg = normalizeColorE(s.fg ?? "#39ff6a", `${path}.fg`, warnings) ?? { r: 0.22, g: 1, b: 0.42 };
+        scene.bg = normalizeColorE(s.bg ?? "#041008", `${path}.bg`, warnings) ?? { r: 0.02, g: 0.06, b: 0.03 };
+        if (scene.pattern === "halftone") {
+            if (typeof s.signal !== "string") {
+                fail(`${path}.signal`, "halftone requires a `signal` expression string");
+            }
+            try {
+                compileExpression(s.signal);
+            } catch (e) {
+                fail(`${path}.signal`, `invalid expression: ${e.message}`);
+            }
+            scene.signal = s.signal;
+        }
+    } else if (s.type === "flow") {
+        if (!Array.isArray(s.palette) || s.palette.length < 2 || s.palette.length > 16) {
+            fail(`${path}.palette`, "flow needs a palette array of 2-16 hex colors");
+        }
+        scene.palette = Object.freeze(s.palette.map((c, i) => {
+            const col = normalizeColor(c, `${path}.palette[${i}]`);
+            if (!col) fail(`${path}.palette[${i}]`, "expected hex color");
+            return col;
+        }));
+        scene.scale = evalueNum(s.scale, `${path}.scale`, 0.1, 64, 3.5, warnings);
+        scene.speed = evalueNum(s.speed, `${path}.speed`, -8, 8, 0.12, warnings);
+        scene.warp = evalueNum(s.warp, `${path}.warp`, 0, 2, 0.5, warnings);
+        scene.contrast = evalueNum(s.contrast, `${path}.contrast`, 0.1, 4, 1, warnings);
+        scene.octaves = num(s.octaves, `${path}.octaves`, 1, 5, 3, warnings, false);
+        scene.seed = isFiniteNumber(s.seed) ? s.seed : 1;
+    } else if (s.type === "particles") {
+        const KNOWN_PARTICLE_BEHAVIORS = new Set(["drift", "orbit", "rise", "fall", "fireflies", "snow"]);
+        scene.behavior = typeof s.behavior === "string" && KNOWN_PARTICLE_BEHAVIORS.has(s.behavior)
+            ? s.behavior : "drift";
+        scene.count = Math.round(num(s.count, `${path}.count`, 0, 512, 90, warnings, false));
+        scene.speed = evalueNum(s.speed, `${path}.speed`, 0, 4, 0.2, warnings);
+        scene.glow = evalueNum(s.glow, `${path}.glow`, 0, 1, 0.6, warnings);
+        if (isFiniteNumber(s.seed)) scene.seed = s.seed;
+        // size: {min,max} fraction of height
+        const sz = s.size && typeof s.size === "object" ? s.size : {};
+        scene.size = Object.freeze({
+            min: num(sz.min, `${path}.size.min`, 0.0005, 0.2, 0.004, warnings),
+            max: num(sz.max, `${path}.size.max`, 0.001, 0.3, 0.012, warnings)
+        });
+        if (scene.size.max < scene.size.min) {
+            warnings.push(`${path}.size: max < min; swapped`);
+            scene.size = Object.freeze({ min: scene.size.max, max: scene.size.min });
+        }
+        // color: single hex or palette array
+        if (Array.isArray(s.color)) {
+            if (s.color.length < 1 || s.color.length > 16) fail(`${path}.color`, "1-16 colors");
+            scene.color = Object.freeze(s.color.map((c, i) => {
+                const col = normalizeColor(c, `${path}.color[${i}]`);
+                if (!col) fail(`${path}.color[${i}]`, "expected hex color");
+                return col;
+            }));
+        } else {
+            scene.color = normalizeColor(s.color ?? "#aaffcc", `${path}.color`);
+        }
     } else if (s.type === "expression") {
         for (const c of ["r", "g", "b"]) {
             if (typeof s[c] !== "string") fail(`${path}.${c}`, "expression scenes require string expressions for r/g/b");
@@ -320,6 +395,17 @@ function sceneIsStatic(scene) {
         case "gif":
         case "video":
             return false;
+        case "flow":
+            // Field advects with time unless speed is literally zero.
+            return scene.speed === 0;
+        case "particles":
+            // Stateless positions are functions of t unless frozen.
+            return scene.count === 0 ||
+                (scene.speed === 0 &&
+                 !(typeof scene.glow === "string" && expressionReferencesTime(scene.glow)));
+        case "composite":
+            // Inherently-dynamic layers nest: recurse per layer.
+            return scene.layers.every(l => sceneIsStatic(l));
         default:
             return !treeReferencesTime(scene);
     }

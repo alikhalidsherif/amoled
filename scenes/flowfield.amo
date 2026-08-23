@@ -1,0 +1,42 @@
+{
+  "amo": 1,
+  "meta": {
+    "name": "deep green flow",
+    "author": "ali"
+  },
+  "display": {
+    "gamma": 1.55,
+    "spill": 0.42,
+    "bloom": {
+      "intensity": 0.35,
+      "threshold": 0.4,
+      "radius": 14
+    }
+  },
+  "quality": {
+    "logicalResolution": {
+      "width": 320,
+      "height": 180
+    },
+    "fps": 30
+  },
+  "timeline": {
+    "duration": 60,
+    "loop": true
+  },
+  "scene": {
+    "type": "flow",
+    "palette": [
+      "#020d06",
+      "#0a2e18",
+      "#175c2e",
+      "#2f8f4a",
+      "#79c98a"
+    ],
+    "scale": 3.2,
+    "speed": 0.09,
+    "warp": 0.65,
+    "octaves": 3,
+    "seed": 11
+  }
+}

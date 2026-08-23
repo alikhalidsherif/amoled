@@ -1,0 +1,28 @@
+{
+  "amo": 1,
+  "meta": {
+    "name": "dot grid",
+    "author": "ali"
+  },
+  "display": {
+    "gamma": 1.5,
+    "spill": 0.3,
+    "bloom": {
+      "intensity": 0.25,
+      "radius": 10
+    }
+  },
+  "quality": {
+    "fps": 30
+  },
+  "scene": {
+    "type": "pattern",
+    "pattern": "dots",
+    "size": "7+2*sin(t*0.6)",
+    "thickness": 0.8,
+    "fg": "#39ff6a",
+    "bg": "#020d06",
+    "softness": 0.12,
+    "angle": "t*0.05"
+  }
+}

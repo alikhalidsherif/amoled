@@ -1,0 +1,58 @@
+{
+  "amo": 1,
+  "meta": {
+    "name": "fireflies over flow",
+    "author": "ali"
+  },
+  "display": {
+    "gamma": 1.6,
+    "spill": 0.45,
+    "bloom": {
+      "intensity": 0.5,
+      "threshold": 0.35,
+      "radius": 16
+    }
+  },
+  "quality": {
+    "logicalResolution": {
+      "width": 320,
+      "height": 180
+    },
+    "fps": 30
+  },
+  "timeline": {
+    "duration": 40,
+    "loop": true
+  },
+  "scene": {
+    "type": "composite",
+    "layers": [
+      {
+        "type": "flow",
+        "palette": [
+          "#010803",
+          "#07230f",
+          "#0f3d1d"
+        ],
+        "scale": 2.6,
+        "speed": 0.06,
+        "warp": 0.55,
+        "seed": 4
+      },
+      {
+        "type": "particles",
+        "behavior": "fireflies",
+        "count": 70,
+        "seed": 99,
+        "color": "#c8ffb0",
+        "glow": 0.85,
+        "speed": 0.15,
+        "size": {
+          "min": 0.003,
+          "max": 0.01
+        },
+        "blend": "add"
+      }
+    ]
+  }
+}
