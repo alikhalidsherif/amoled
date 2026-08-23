@@ -51,6 +51,9 @@ const PLASMA = {
 await page.goto(`http://127.0.0.1:${port}/?scene=scenes/color.amo`, { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise(r => setTimeout(r, 1500));
 
+// GPU fast path is opt-in (PLAN.md §Phase 10): enable before loading plasma.
+await page.evaluate(() => { window.__sim.updateConfig({ gpuRaster: true }); });
+
 const loadOutcome = await page.evaluate(async (d) => {
     const p = window.__player;
     let err = null;

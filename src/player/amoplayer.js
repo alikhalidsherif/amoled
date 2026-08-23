@@ -24,6 +24,7 @@ export default class AMOLEDPlayer {
         this._events = events || {};
         this._caches = createCacheStore();
         this._decoderFactory = createMediaDecoderFactory();
+        this._loadSeq = 0;   // serializes concurrent load() calls (last-requested wins)
         this.runtime = createRuntime({ renderer });
         this._currentUrl = null;
 
@@ -66,6 +67,7 @@ export default class AMOLEDPlayer {
     /** Accepts a URL to a .amo file or a pre-parsed definition object. */
     async load(source) {
         const events = this._events;
+        const requestId = ++this._loadSeq;
         try {
             if (events.onloadstart) events.onloadstart({ source });
 
@@ -99,7 +101,7 @@ export default class AMOLEDPlayer {
             if (parsed.definition.scene.type === "expression" &&
                 !parsed.definition.isStatic &&
                 !this._forceCpuRaster &&
-                renderer.config.gpuRaster === true &&
+                this.renderer.config.gpuRaster === true &&
                 GpuExpressionRasterizer.isSupported()) {
 
                 // Lazy provider: instance created AFTER the runtime negotiates
@@ -132,6 +134,12 @@ export default class AMOLEDPlayer {
                         return null; // runtime falls back to CPU for this frame
                     }
                 };
+            }
+
+            // Superseded by a newer load() while awaiting fetch/assets:
+            // last-requested wins, never last-completed.
+            if (requestId !== this._loadSeq) {
+                return this;
             }
 
             if (this._onSceneApplied) this._onSceneApplied(parsed.definition);
