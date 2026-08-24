@@ -1,0 +1,24 @@
+{
+  "amo": 1,
+  "meta": {
+    "name": "three-phase AC",
+    "author": "ali",
+    "description": "Canonical R/G/B phase-offset example: each emitter channel driven by a sinusoid 120 degrees apart. Edit 'omega' in parameters to change the electrical frequency."
+  },
+  "display": {
+    "gamma": 1.6,
+    "spill": 0.3,
+    "bloom": { "intensity": 0.35, "threshold": 0.4, "radius": 14 }
+  },
+  "quality": { "logicalResolution": { "width": 320, "height": 180 }, "fps": 30 },
+  "timeline": { "duration": 8, "loop": true },
+  "parameters": {
+    "omega": { "value": 2, "min": 0, "max": 12, "step": 0.1 }
+  },
+  "scene": {
+    "type": "expression",
+    "r": "clamp(0.5 + 0.5*sin(omega*tau*t), 0, 1)",
+    "g": "clamp(0.5 + 0.5*sin(omega*tau*t - tau/3), 0, 1)",
+    "b": "clamp(0.5 + 0.5*sin(omega*tau*t - 2*tau/3), 0, 1)"
+  }
+}

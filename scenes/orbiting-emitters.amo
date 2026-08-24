@@ -1,0 +1,43 @@
+{
+  "amo": 1,
+  "meta": {
+    "name": "orbiting emitters",
+    "author": "ali",
+    "description": "Moving-emitter primitive demo: three glowing dots orbit the center with parametric radius/speed. Tweak the sliders in the studio parameters panel."
+  },
+  "display": {
+    "gamma": 1.55,
+    "spill": 0.38,
+    "bloom": { "intensity": 0.65, "threshold": 0.3, "radius": 20 }
+  },
+  "quality": { "logicalResolution": { "width": 320, "height": 180 }, "fps": 30 },
+  "timeline": { "duration": 12, "loop": true },
+  "parameters": {
+    "orbitRadius": { "value": 0.22, "min": 0.05, "max": 0.4, "step": 0.01 },
+    "speed": { "value": 1.2, "min": 0, "max": 4, "step": 0.05 }
+  },
+  "scene": {
+    "type": "composite",
+    "layers": [
+      { "type": "shape", "kind": "circle", "cx": 0.5, "cy": 0.5, "r": 0.06, "softness": 0.02, "color": "#141a14" },
+      {
+        "type": "shape", "kind": "circle", "r": 0.035, "softness": 0.015,
+        "cx": "0.5 + orbitRadius*cos(speed*t)",
+        "cy": "0.5 + orbitRadius*0.7*sin(speed*t)",
+        "color": "#ff4040", "blend": "add"
+      },
+      {
+        "type": "shape", "kind": "circle", "r": 0.035, "softness": 0.015,
+        "cx": "0.5 + orbitRadius*cos(speed*t + tau/3)",
+        "cy": "0.5 + orbitRadius*0.7*sin(speed*t + tau/3)",
+        "color": "#40ff70", "blend": "add"
+      },
+      {
+        "type": "shape", "kind": "circle", "r": 0.035, "softness": 0.015,
+        "cx": "0.5 + orbitRadius*cos(speed*t + 2*tau/3)",
+        "cy": "0.5 + orbitRadius*0.7*sin(speed*t + 2*tau/3)",
+        "color": "#5070ff", "blend": "add"
+      }
+    ]
+  }
+}
