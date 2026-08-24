@@ -111,7 +111,7 @@ function axisCoord(dir, u, v) {
 // Pattern generators (PLAN-CREATIVE.md §B1)
 // ------------------------------------------------------------------
 
-const PATTERN_VARIANTS = new Set(["dots", "checks", "stripes", "scanlines", "halftone"]);
+const PATTERN_VARIANTS = new Set(["dots", "checks", "stripes", "scanlines", "halftone", "grid"]);
 const patternCache = new WeakMap();
 
 function getPatternProgram(scene) {
@@ -218,6 +218,13 @@ function rasterizePattern(scene, w, h, t, definition, out) {
                     if (prog.signal) sig = clampf(prog.signal(env.x, env.y, env));
                     const dxp = fx - 0.5, dyp = fy - 0.5;
                     cov = smoothCov(thickness * 0.5 * sig, softness, Math.hypot(dxp, dyp));
+                    break;
+                }
+                case "grid": {
+                    // Lines along cell borders in both axes.
+                    const dv = smoothCov(thickness * 0.5, softness, Math.min(fx, 1 - fx));
+                    const dh = smoothCov(thickness * 0.5, softness, Math.min(fy, 1 - fy));
+                    cov = Math.max(dv, dh);
                     break;
                 }
             }
@@ -597,6 +604,191 @@ function rasterizeLivingGradient(scene, w, h, t, definition, out) {
     return out;
 }
 
+// ------------------------------------------------------------------
+// Visual primitives (PLAN_GENERATOR_OVERHAUL.md §9/§10/§14):
+// shape (circle/ring/rect/line), conicGradient, waves. These are
+// convenience generators that compile down to the same field math.
+//
+// Geometry slots are E-values: an expression cx/cy makes the shape a
+// MOVING EMITTER. Distances use height-normalized coordinates with
+// aspect correction (sx = u * w/h) so circles stay circular at any
+// logical resolution; all other coordinates are normalized 0..1,
+// origin top-left (§4).
+// ------------------------------------------------------------------
+
+function scalarSlot(spec, fallback) {
+    if (typeof spec === "number") return () => spec;
+    if (spec === undefined || spec === null) return () => fallback;
+    return compileRuntimeExpr(String(spec));
+}
+
+function rasterizeShape(scene, w, h, t, definition, out) {
+    const env = sceneEnv(definition, t, w, h, scene.seed);
+    const color = compileColorSlot(scene.color ?? "#ffffff");
+    const bg = scene.bg ? compileColorSlot(scene.bg) : null;
+    const softF = scalarSlot(scene.softness, 0.008);
+    const kind = scene.kind || "circle";
+    const aspect = w / Math.max(1, h);
+
+    // Geometry slot evaluators (per-pixel when expressions).
+    const g = {};
+    for (const k of ["cx", "cy", "r", "innerR", "outerR", "w", "h", "x1", "y1", "x2", "y2", "thickness"]) {
+        if (scene[k] !== undefined) g[k] = scalarSlot(scene[k], 0);
+    }
+
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+        env.y = y;
+        env.v = h > 1 ? y / (h - 1) : 0;
+        for (let x = 0; x < w; x++) {
+            env.x = x;
+            env.u = w > 1 ? x / (w - 1) : 0;
+
+            const softness = Math.max(0, softF(env.x, env.y, env));
+            const val = (k) => (g[k] ? g[k](env.x, env.y, env) : 0);
+            // Height-normalized sample point.
+            const sx = env.u * aspect, sy = env.v;
+
+            let cov;
+            switch (kind) {
+                case "ring": {
+                    const rr = Math.hypot(sx - val("cx") * aspect, sy - val("cy"));
+                    const innerR = val("innerR"), outerR = val("outerR");
+                    const band = Math.max(1e-4, (outerR - innerR) * 0.5);
+                    const mid = (innerR + outerR) * 0.5;
+                    cov = smoothCov(band * 2, softness, Math.abs(rr - mid));
+                    break;
+                }
+                case "rect": {
+                    const hw = val("w") * aspect * 0.5, hh = val("h") * 0.5;
+                    const dx = Math.abs(sx - val("cx") * aspect) - hw;
+                    const dy = Math.abs(sy - val("cy")) - hh;
+                    cov = smoothCov(0, softness, Math.max(dx, dy));
+                    break;
+                }
+                case "line": {
+                    const ax = val("x1") * aspect, ay = val("y1");
+                    const bx = val("x2") * aspect, by = val("y2");
+                    const abx = bx - ax, aby = by - ay;
+                    const lenSq = abx * abx + aby * aby;
+                    let tt = lenSq > 0
+                        ? ((sx - ax) * abx + (sy - ay) * aby) / lenSq : 0;
+                    tt = tt < 0 ? 0 : tt > 1 ? 1 : tt;
+                    const qx = ax + abx * tt, qy = ay + aby * tt;
+                    cov = smoothCov(val("thickness") * 0.5, softness,
+                        Math.hypot(sx - qx, sy - qy));
+                    break;
+                }
+                default: { // circle
+                    const rr = Math.hypot(sx - val("cx") * aspect, sy - val("cy"));
+                    cov = smoothCov(val("r"), softness, rr);
+                    break;
+                }
+            }
+
+            writeFieldPixel(out, i, color, bg, env, cov);
+            i += 3;
+        }
+    }
+    return out;
+}
+
+function rasterizeConicGradient(scene, w, h, t, definition, out) {
+    const env = sceneEnv(definition, t, w, h, scene.seed);
+    const from = compileColorSlot(scene.from ?? "#000000");
+    const to = compileColorSlot(scene.to ?? "#ffffff");
+    const angleF = scalarSlot(scene.angle, 0);
+    const softF = scalarSlot(scene.softness, 0.02);
+    const cxF = scalarSlot(scene.cx, 0.5);
+    const cyF = scalarSlot(scene.cy, 0.5);
+    const TAU = Math.PI * 2;
+
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+        env.y = y;
+        env.v = h > 1 ? y / (h - 1) : 0;
+        for (let x = 0; x < w; x++) {
+            env.x = x;
+            env.u = w > 1 ? x / (w - 1) : 0;
+            const ang = angleF(env.x, env.y, env);
+            const cxp = cxF(env.x, env.y, env), cyp = cyF(env.x, env.y, env);
+            const a = Math.atan2(env.v - cyp, env.u - cxp) + ang;   // sweep starts pointing right (+u), clockwise in screen space
+            let tt = ((a / TAU) % 1 + 1) % 1;
+
+            // Feather the wrap seam and both stops.
+            const softness = Math.min(0.49, Math.max(1e-6, softF(env.x, env.y, env)));
+            if (tt < softness) tt = tt / (softness * 2) * softness; // ease-in at seam
+            const ca = from.eval(env.x, env.y, env);
+            const cb = to.eval(env.x, env.y, env);
+            out[i++] = Math.round((ca.r + (cb.r - ca.r) * tt) * 255);
+            out[i++] = Math.round((ca.g + (cb.g - ca.g) * tt) * 255);
+            out[i++] = Math.round((ca.b + (cb.b - ca.b) * tt) * 255);
+        }
+    }
+    return out;
+}
+
+function rasterizeWaves(scene, w, h, t, definition, out) {
+    const env = sceneEnv(definition, t, w, h, scene.seed);
+    const color = compileColorSlot(scene.color ?? "#39ff6a");
+    const bg = compileColorSlot(scene.bg ?? "#000000");
+    const wavelengthF = scalarSlot(scene.wavelength, 0.25);
+    const amplitudeF = scalarSlot(scene.amplitude, 1);
+    const speedF = scalarSlot(scene.speed, 0.5);
+    const angleF = scalarSlot(scene.angle, 0);
+    const phaseF = scalarSlot(scene.phase, 0);
+    const TAU = Math.PI * 2;
+
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+        env.y = y;
+        env.v = h > 1 ? y / (h - 1) : 0;
+        for (let x = 0; x < w; x++) {
+            env.x = x;
+            env.u = w > 1 ? x / (w - 1) : 0;
+            const wl = Math.max(0.01, wavelengthF(env.x, env.y, env));
+            const amp = amplitudeF(env.x, env.y, env);
+            const sp = speedF(env.x, env.y, env);
+            const dirA = angleF(env.x, env.y, env);
+            const phase = phaseF(env.x, env.y, env);
+            const dx = Math.cos(dirA), dy = Math.sin(dirA);
+            const proj = (env.u * w / Math.max(1, h)) * dx + env.v * dy; // height-normalized space
+            let s = 0.5 + 0.5 * Math.sin(proj * TAU / wl - sp * TAU * env.t + phase);
+            s = 0.5 + (s - 0.5) * amp;   // amplitude scales wave contrast
+
+            const cb = bg.eval(env.x, env.y, env);
+            const cf = color.eval(env.x, env.y, env);
+            out[i++] = Math.round((cb.r + (cf.r - cb.r) * s) * 255);
+            out[i++] = Math.round((cb.g + (cf.g - cb.g) * s) * 255);
+            out[i++] = Math.round((cb.b + (cf.b - cb.b) * s) * 255);
+        }
+    }
+    return out;
+}
+
+/** Shared tail for primitives: mix bg->color by coverage [0,1]. */
+function writeFieldPixel(out, i, color, bg, env, cov) {
+    let r, g, b;
+    if (cov <= 0) {
+        if (!bg) { out[i] = 0; out[i + 1] = 0; out[i + 2] = 0; return; }
+        ({ r, g, b } = bgColor({ bg }, env.x, env.y, env));
+    } else {
+        const cf = color.allConst ? color : color.eval(env.x, env.y, env);
+        if (!bg && cov >= 1) { r = cf.r; g = cf.g; b = cf.b; }
+        else {
+            const base = bg
+                ? (bg.allConst ? bg : bg.eval(env.x, env.y, env))
+                : { r: 0, g: 0, b: 0 };
+            r = base.r + (cf.r - base.r) * cov;
+            g = base.g + (cf.g - base.g) * cov;
+            b = base.b + (cf.b - base.b) * cov;
+        }
+    }
+    out[i] = Math.round(r * 255);
+    out[i + 1] = Math.round(g * 255);
+    out[i + 2] = Math.round(b * 255);
+}
+
 // fit math shared with tests: returns {dx,dy,dw,dh} for drawing source into
 // a w×h destination with cover/contain/stretch semantics.
 export function computeFit(srcW, srcH, dstW, dstH, fit) {
@@ -750,6 +942,12 @@ export function rasterizeScene(scene, definition, t, size, assets, out) {
             return rasterizeCurve(scene, w, h, t, definition, out);
         case "expression":
             return rasterizeExpression(definition || { quality: { fps: 30 } }, scene, w, h, t, out);
+        case "shape":
+            return rasterizeShape(scene, w, h, t, definition, out);
+        case "conicGradient":
+            return rasterizeConicGradient(scene, w, h, t, definition, out);
+        case "waves":
+            return rasterizeWaves(scene, w, h, t, definition, out);
         case "image":
             return rasterizeImage(scene, w, h, assets, out);
         default:

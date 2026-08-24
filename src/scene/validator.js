@@ -18,7 +18,7 @@ export class AmoError extends Error {
 
 const KNOWN_TOP_LEVEL = new Set(["amo", "meta", "display", "quality", "assets", "scene", "timeline", "parameters"]);
 const KNOWN_DISPLAY = new Set(["pitch", "gamma", "brightness", "spill", "emitters", "bloom", "pentile"]);
-const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "flow", "particles", "curve", "expression", "composite"]);
+const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "flow", "particles", "curve", "expression", "composite", "shape", "conicGradient", "waves"]);
 const KNOWN_FIT = new Set(["cover", "contain", "stretch"]);
 const KNOWN_DIRECTIONS = new Set(["vertical", "horizontal", "diagonal", "radial"]);
 const KNOWN_EASINGS = new Set(["linear", "smoothstep", "easeIn", "easeOut"]);
@@ -26,6 +26,8 @@ const KNOWN_EASINGS = new Set(["linear", "smoothstep", "easeIn", "easeOut"]);
 function isFiniteNumber(v) {
     return typeof v === "number" && Number.isFinite(v);
 }
+
+const isNum = isFiniteNumber;
 
 function fail(path, message) {
     throw new AmoError(path, message);
@@ -165,7 +167,10 @@ const KNOWN_FIELDS_FOR_TYPE = {
     particles: ["type", "count", "behavior", "size", "speed", "color", "glow", "seed"],
     curve: ["type", "x", "y", "samples", "thickness", "glow", "decay", "color", "bg", "seed"],
     expression: ["type", "r", "g", "b", "seed"],
-    composite: ["type", "layers"]
+    composite: ["type", "layers"],
+    shape: ["type", "kind", "cx", "cy", "r", "innerR", "outerR", "w", "h", "x1", "y1", "x2", "y2", "thickness", "softness", "color", "bg"],
+    conicGradient: ["type", "cx", "cy", "angle", "from", "to", "softness"],
+    waves: ["type", "wavelength", "amplitude", "speed", "angle", "phase", "color", "bg"]
 };
 
 // Layer-only compositing fields.
@@ -245,7 +250,7 @@ function normalizeSceneContent(s, path, warnings, assets, paramNames) {
         scene.asset = s.asset;
         scene.muted = s.muted !== false;
     } else if (s.type === "pattern") {
-        const KNOWN_PATTERNS = new Set(["dots", "checks", "stripes", "scanlines", "halftone"]);
+        const KNOWN_PATTERNS = new Set(["dots", "checks", "stripes", "scanlines", "halftone", "grid"]);
         scene.pattern = typeof s.pattern === "string" && KNOWN_PATTERNS.has(s.pattern) ? s.pattern : "dots";
         scene.size = evalueNum(s.size, `${path}.size`, 2, 256, 8, warnings, paramNames);
         scene.thickness = evalueNum(s.thickness, `${path}.thickness`, 0, 1, 0.5, warnings, paramNames);
@@ -350,6 +355,56 @@ function normalizeSceneContent(s, path, warnings, assets, paramNames) {
             scene[c] = s[c];
         }
         scene.seed = isFiniteNumber(s.seed) ? s.seed : 1;
+    } else if (s.type === "shape") {
+        const KNOWN_SHAPE_KINDS = new Set(["circle", "ring", "rect", "line"]);
+        if (!KNOWN_SHAPE_KINDS.has(s.kind)) {
+            fail(`${path}.kind`, `expected one of ${[...KNOWN_SHAPE_KINDS].join("|")}, got ${JSON.stringify(s.kind)}`);
+        }
+        scene.kind = s.kind;
+        const ev = (v, p, min, max, fb) => evalueNum(v, `${path}.${p}`, min, max, fb, warnings, paramNames);
+        scene.cx = ev(s.cx, "cx", -1, 1, 0.5);
+        scene.cy = ev(s.cy, "cy", -1, 1, 0.5);
+        if (scene.kind === "circle") {
+            scene.r = ev(s.r, "r", 0.001, 2, 0.25);
+        } else if (scene.kind === "ring") {
+            scene.innerR = ev(s.innerR, "innerR", 0, 2, 0.15);
+            scene.outerR = ev(s.outerR, "outerR", 0.001, 2, 0.25);
+            if (isNum(scene.innerR) && isNum(scene.outerR) && scene.outerR < scene.innerR) {
+                warnings.push(`${path}: outerR < innerR; swapped`);
+                [scene.innerR, scene.outerR] = [scene.outerR, scene.innerR];
+            }
+        } else if (scene.kind === "rect") {
+            scene.w = ev(s.w, "w", 0.001, 4, 0.4);
+            scene.h = ev(s.h, "h", 0.001, 4, 0.4);
+        } else { // line
+            scene.x1 = ev(s.x1, "x1", -1, 1, 0.25);
+            scene.y1 = ev(s.y1, "y1", -1, 1, 0.75);
+            scene.x2 = ev(s.x2, "x2", -1, 1, 0.75);
+            scene.y2 = ev(s.y2, "y2", -1, 1, 0.25);
+            scene.thickness = ev(s.thickness, "thickness", 0.001, 0.5, 0.01);
+        }
+        scene.softness = ev(s.softness, "softness", 0, 0.5, 0.008);
+        scene.color = normalizeColorE(s.color ?? "#ffffff", `${path}.color`, warnings, paramNames) ?? { r: 1, g: 1, b: 1 };
+        if (s.bg !== undefined && s.bg !== null) {
+            scene.bg = normalizeColorE(s.bg, `${path}.bg`, warnings, paramNames);
+        }
+    } else if (s.type === "conicGradient") {
+        const ev = (v, p, min, max, fb) => evalueNum(v, `${path}.${p}`, min, max, fb, warnings, paramNames);
+        scene.cx = ev(s.cx, "cx", -1, 1, 0.5);
+        scene.cy = ev(s.cy, "cy", -1, 1, 0.5);
+        scene.angle = ev(s.angle, "angle", -64, 64, 0);
+        scene.softness = ev(s.softness, "softness", 0, 0.5, 0.02);
+        scene.from = normalizeColorE(s.from ?? "#000000", `${path}.from`, warnings, paramNames) ?? { r: 0, g: 0, b: 0 };
+        scene.to = normalizeColorE(s.to ?? "#ffffff", `${path}.to`, warnings, paramNames) ?? { r: 1, g: 1, b: 1 };
+    } else if (s.type === "waves") {
+        const ev = (v, p, min, max, fb) => evalueNum(v, `${path}.${p}`, min, max, fb, warnings, paramNames);
+        scene.wavelength = ev(s.wavelength, "wavelength", 0.01, 8, 0.25);
+        scene.amplitude = ev(s.amplitude, "amplitude", 0, 1, 1);
+        scene.speed = ev(s.speed, "speed", -16, 16, 0.5);
+        scene.angle = ev(s.angle, "angle", -64, 64, 0);
+        scene.phase = ev(s.phase, "phase", -64, 64, 0);
+        scene.color = normalizeColorE(s.color ?? "#39ff6a", `${path}.color`, warnings, paramNames) ?? { r: 0.22, g: 1, b: 0.42 };
+        scene.bg = normalizeColorE(s.bg ?? "#000000", `${path}.bg`, warnings, paramNames) ?? { r: 0, g: 0, b: 0 };
     } else if (s.type === "composite") {
         if (!Array.isArray(s.layers)) fail(`${path}.layers`, "expected array");
         if (s.layers.length === 0) fail(`${path}.layers`, "composite needs at least one layer");
