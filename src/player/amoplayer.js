@@ -183,6 +183,8 @@ export default class AMOLEDPlayer {
      * Deterministic for stateless scenes (format invariant).
      */
     scrub(t) { this.runtime.scrub(t); return this; }
+    /** Playback rate multiplier for the scene clock (0.25x..4x). */
+    setPlaybackRate(r) { this.runtime.setPlaybackRate(r); return this; }
     getTime() { return this.runtime.time; }
     getDuration() {
         const tl = this.runtime.definitionRef && this.runtime.definitionRef.timeline;

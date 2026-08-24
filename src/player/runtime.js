@@ -28,6 +28,7 @@ export function createRuntime({ renderer }) {
     let lastFrameTime = 0;
     let accumulated = 0;
     let sceneTime = 0;
+    let playbackRate = 1;        // authoring scrub speed multiplier
 
     // Quality-negotiation override (Phase 8): wins over scene quality
     // requests. Keys: logicalWidth, logicalHeight, fps (all optional).
@@ -127,7 +128,7 @@ export function createRuntime({ renderer }) {
         const frameInterval = 1000 / targetFps;
 
         if (!definition.isStatic && accumulated >= frameInterval) {
-            sceneTime += accumulated / 1000;
+            sceneTime += (accumulated / 1000) * playbackRate;
             accumulated %= frameInterval;
 
             try {
@@ -276,6 +277,15 @@ export function createRuntime({ renderer }) {
             } catch (err) {
                 emit("error", err);
             }
+        },
+
+        /** Playback rate multiplier for the scene clock (0.25..4). */
+        setPlaybackRate(r) {
+            playbackRate = Math.min(4, Math.max(0.1, Number(r) || 1));
+        },
+
+        getPlaybackRate() {
+            return playbackRate;
         },
 
         /** Quality-negotiation override; re-renders at the new size. */

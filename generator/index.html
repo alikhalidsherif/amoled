@@ -105,6 +105,56 @@
         padding: 0 4px; border-radius: 3px; margin-left: 5px;
     }
 
+    /* ---------- expression editor (Desmos-style) ---------- */
+    .expr-wrap { position: relative; margin-top: 4px; }
+    .expr-hl {
+        position: absolute; inset: 0; z-index: 1; margin: 0;
+        font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace;
+        padding: 8px 9px; border: 1px solid transparent; border-radius: 5px;
+        white-space: pre-wrap; word-break: break-word; overflow: hidden;
+        color: #b8b8b8; pointer-events: none; background: #101010;
+        min-height: 38px;
+    }
+    .expr-wrap textarea {
+        position: relative; z-index: 2; background: transparent;
+        color: transparent; caret-color: var(--txt);
+        -webkit-text-fill-color: transparent;
+    }
+    .expr-wrap textarea::selection { background: rgba(126,201,126,.25); }
+    .tok-num { color: #d6c07a; }
+    .tok-fn { color: #7ec97e; }
+    .tok-var { color: #7fb4dd; }
+    .tok-param { color: #cf9adf; }
+    .tok-op { color: #c4c4c4; }
+    .tok-const { color: #e0a06a; }
+    .tok-bad { color: var(--err); text-decoration: underline wavy; }
+    .expr-err { color: var(--err); font-size: 11px; margin-top: 3px; min-height: 14px; }
+
+    .ac-menu {
+        position: absolute; z-index: 40; left: 0; right: 0;
+        background: #101010; border: 1px solid #2a2a2a; border-radius: 5px;
+        max-height: 190px; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    }
+    .ac-item { padding: 6px 10px; cursor: pointer; font-size: 12px; }
+    .ac-item.active, .ac-item:hover { background: #16241a; color: var(--accent); }
+    .ac-item .ac-meta { color: var(--faint); font-size: 10px; margin-left: 8px; }
+
+    /* ---------- parameter rows ---------- */
+    .param-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+    .param-row input[type="text"] { width: 120px; flex: none; margin-top: 0; }
+    .param-row input[type="range"] { flex: 1; margin-top: 0; min-height: 0; }
+    .param-row .pval { width: 76px; flex: none; text-align: right; margin-top: 0; }
+    .param-row .pdel { flex: none; width: 40px; padding: 6px 0; }
+
+    /* ---------- pixel inspector ---------- */
+    #inspector {
+        position: absolute; top: 6px; left: 6px; z-index: 5;
+        background: rgba(0,0,0,.7); border: 1px solid #222; border-radius: 5px;
+        padding: 5px 9px; font-size: 11px; color: var(--dim);
+        pointer-events: none; display: none; white-space: pre; line-height: 1.5;
+    }
+    #inspector b { color: var(--txt); }
+
     /* ---------- layer list ---------- */
     #layer-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
     .layer-chip {
@@ -165,10 +215,20 @@
 </div>
 
 <div id="preview-section">
-    <div id="shell"><canvas id="preview-canvas"></canvas></div>
+    <div id="shell"><canvas id="preview-canvas"></canvas><div id="inspector"></div></div>
     <div id="transport">
         <button id="btn-play" class="icon" style="margin:0">&#9654;</button>
+        <button id="btn-restart" class="secondary icon" title="Restart (scrub to 0)">&#8635;</button>
+        <button id="btn-step-back" class="secondary icon" title="Step back one frame">&#8249;</button>
         <input id="scrubber" type="range" min="0" max="8" step="0.05" value="0">
+        <button id="btn-step-fwd" class="secondary icon" title="Step forward one frame">&#8250;</button>
+        <select id="f-speed" title="Playback speed" style="width:auto;min-height:0;padding:4px 6px;margin-top:0;">
+            <option value="0.25">0.25&times;</option>
+            <option value="0.5">0.5&times;</option>
+            <option value="1" selected>1&times;</option>
+            <option value="2">2&times;</option>
+            <option value="4">4&times;</option>
+        </select>
         <span id="t-label">0.0s</span>
     </div>
 </div>
@@ -200,6 +260,15 @@
             </div>
 
             <div id="layer-editor"></div>
+
+            <h2>Parameters</h2>
+            <div class="hint">Named values usable in any expression — write
+                <code>amplitude</code> in a channel equation, then drag its slider here.
+                Values may also be expressions of t.</div>
+            <div id="param-list"></div>
+            <div class="layer-actions">
+                <button id="btn-add-param" class="secondary">+ Add parameter</button>
+            </div>
 
             <h2>Motion preset</h2>
             <select id="preset-select"></select>

@@ -12,6 +12,11 @@
 
 import { parseAmo } from "../src/scene/parser.js";
 import { applyPreset, listPresets } from "../src/scene/presets.js";
+import {
+    compileExpression, AmoExprError,
+    FUNCTION_NAMES, VARIABLE_NAMES, CONSTANT_NAMES
+} from "../src/scene/expression.js";
+import { rasterize } from "../src/scene/rasterizer.js";
 import AMOLEDPlayer from "../src/player/amoplayer.js";
 
 const GPUPentileSimulator = window.AMOLED.GPUPentileSimulator;
@@ -77,9 +82,173 @@ function highlightError() {
 }
 
 // ------------------------------------------------------------------
+// Desmos-style expression editing (§6): highlight layer behind the
+// textarea, autocomplete over functions/variables/constants/parameters,
+// inline validation errors with the real parser.
+// ------------------------------------------------------------------
+
+const BASE_VAR_SET = new Set(VARIABLE_NAMES);
+const CONST_SET = new Set(CONSTANT_NAMES);
+
+function exprVocabulary() {
+    const params = Object.keys(workingRaw?.parameters || {});
+    return [
+        ...VARIABLE_NAMES.map(n => ({ name: n, meta: "variable", cls: "tok-var" })),
+        ...CONSTANT_NAMES.map(n => ({ name: n, meta: "constant", cls: "tok-const" })),
+        ...params.map(n => ({ name: n, meta: "parameter", cls: "tok-param" })),
+        ...FUNCTION_NAMES.map(n => ({ name: n, meta: "function", cls: "tok-fn" }))
+    ];
+}
+
+const HL_TOKEN_RE = /(\d+\.?\d*(?:[eE][+-]?\d+)?)|([A-Za-z_][A-Za-z0-9_]*)|([-+*/%^<>?:(),])|(\s+)|(.)/g;
+
+function highlightExpr(src) {
+    let out = "";
+    let m;
+    HL_TOKEN_RE.lastIndex = 0;
+    while ((m = HL_TOKEN_RE.exec(src)) !== null) {
+        if (m[1] !== undefined) out += `<span class="tok-num">${escapeHtml(m[1])}</span>`;
+        else if (m[2] !== undefined) {
+            const word = m[2];
+            const isCall = src[HL_TOKEN_RE.lastIndex] === "(";
+            let cls = "tok-bad";
+            if (isCall && FUNCTION_NAMES.includes(word)) cls = "tok-fn";
+            else if (BASE_VAR_SET.has(word)) cls = "tok-var";
+            else if (CONST_SET.has(word)) cls = "tok-const";
+            else if ((workingRaw?.parameters || {})[word] !== undefined) cls = "tok-param";
+            out += `<span class="${cls}">${escapeHtml(word)}</span>`;
+        }
+        else if (m[3] !== undefined) out += `<span class="tok-op">${escapeHtml(m[3])}</span>`;
+        else out += escapeHtml(m[0]);
+    }
+    return out;
+}
+
+/**
+ * Upgrade a textarea into an expression editor. Returns nothing; mutates
+ * the DOM around it. Live-validates with the real compiler so error
+ * messages match playback exactly.
+ */
+function attachExprEditor(textarea) {
+    // Highlight layer under a transparent-text textarea.
+    const wrap = document.createElement("div");
+    wrap.className = "expr-wrap";
+    textarea.parentNode.insertBefore(wrap, textarea);
+    const hl = document.createElement("pre");
+    hl.className = "expr-hl";
+    hl.setAttribute("aria-hidden", "true");
+    wrap.appendChild(hl);
+    wrap.appendChild(textarea);
+    const errEl = document.createElement("div");
+    errEl.className = "expr-err";
+    wrap.after(errEl);
+
+    function refreshHighlight() {
+        hl.innerHTML = highlightExpr(textarea.value) + "\n";
+        hl.scrollTop = textarea.scrollTop;
+    }
+
+    function validate() {
+        errEl.textContent = "";
+        textarea.style.borderColor = "";
+        const v = textarea.value.trim();
+        if (!v) return;
+        try {
+            compileExpression(v, new Set(Object.keys(workingRaw?.parameters || {})));
+        } catch (e) {
+            if (e instanceof AmoExprError || e.name === "AmoExprError") {
+                errEl.textContent = e.message;
+                textarea.style.borderColor = "var(--err)";
+            }
+            // non-syntax errors (e.g. arity) also come through as AmoExprError
+        }
+    }
+
+    // --- autocomplete ---
+    let acMenu = null;
+    let acItems = [];
+    let acActive = 0;
+
+    function closeAc() {
+        if (acMenu) { acMenu.remove(); acMenu = null; acItems = []; }
+    }
+
+    function currentWord() {
+        const pos = textarea.selectionStart;
+        const before = textarea.value.slice(0, pos);
+        const m = /[A-Za-z_][A-Za-z0-9_]*$/.exec(before);
+        return m ? { word: m[0], start: pos - m[0].length } : null;
+    }
+
+    function openAc() {
+        const cw = currentWord();
+        if (!cw || cw.word.length < 1) { closeAc(); return; }
+        const lower = cw.word.toLowerCase();
+        acItems = exprVocabulary()
+            .filter(v => v.name.toLowerCase().startsWith(lower) && v.name !== cw.word)
+            .slice(0, 12);
+        if (acItems.length === 0) { closeAc(); return; }
+        acActive = 0;
+        if (!acMenu) {
+            acMenu = document.createElement("div");
+            acMenu.className = "ac-menu";
+            wrap.appendChild(acMenu);
+            for (const evName of ["mousedown"]) {
+                acMenu.addEventListener(evName, e => e.preventDefault());
+            }
+            acMenu.addEventListener("click", e => {
+                const item = e.target.closest(".ac-item");
+                if (item) acceptAc(acItems[Number(item.dataset.idx)]);
+            });
+        }
+        renderAc();
+    }
+
+    function renderAc() {
+        if (!acMenu) return;
+        acMenu.innerHTML = acItems
+            .map((v, i) =>
+                `<div class="ac-item${i === acActive ? " active" : ""}" data-idx="${i}">` +
+                `${escapeHtml(v.name)}<span class="ac-meta">${v.meta}</span></div>`)
+            .join("");
+    }
+
+    function acceptAc(item) {
+        if (!item) { closeAc(); return; }
+        const cw = currentWord();
+        if (cw) {
+            const pos = textarea.selectionStart;
+            textarea.value =
+                textarea.value.slice(0, cw.start) + item.name +
+                textarea.value.slice(pos);
+            const np = cw.start + item.name.length;
+            textarea.setSelectionRange(np, np);
+        }
+        closeAc();
+        textarea.dispatchEvent(new Event("input", { bubbles: false }));
+        textarea.focus();
+    }
+
+    textarea.addEventListener("keydown", e => {
+        if (!acMenu) return;
+        if (e.key === "ArrowDown") { acActive = (acActive + 1) % acItems.length; renderAc(); e.preventDefault(); }
+        else if (e.key === "ArrowUp") { acActive = (acActive - 1 + acItems.length) % acItems.length; renderAc(); e.preventDefault(); }
+        else if (e.key === "Enter" || e.key === "Tab") { acceptAc(acItems[acActive]); e.preventDefault(); }
+        else if (e.key === "Escape") { closeAc(); e.preventDefault(); }
+    });
+    textarea.addEventListener("blur", () => setTimeout(closeAc, 120));
+
+    textarea.addEventListener("input", () => { refreshHighlight(); validate(); openAc(); });
+    textarea.addEventListener("scroll", () => { hl.scrollTop = textarea.scrollTop; });
+    refreshHighlight();
+    validate();
+}
+
+// ------------------------------------------------------------------
 // Scene type schemas (visual editors)
 // ------------------------------------------------------------------
 const SCENE_TYPES = ["livingGradient", "flow", "particles", "pattern",
+    "shape", "conicGradient", "waves",
     "curve", "expression", "gradient", "color", "image", "gif", "video"];
 
 // kind: eval-num (text input + optional slider), color, select, expr, int
@@ -106,13 +275,47 @@ const TYPE_FIELDS = {
         { key: "seed", label: "Seed", kind: "int", def: 42 }
     ],
     pattern: [
-        { key: "pattern", label: "Variant", kind: "select", options: ["dots", "checks", "stripes", "scanlines", "halftone"], def: "dots" },
+        { key: "pattern", label: "Variant", kind: "select", options: ["dots", "checks", "stripes", "scanlines", "halftone", "grid"], def: "dots" },
         { key: "size", label: "Size (px)", kind: "eval-num", min: 2, max: 64, step: 1, def: 10 },
         { key: "thickness", label: "Thickness", kind: "eval-num", min: 0, max: 1, step: 0.05, def: 0.6 },
         { key: "fg", label: "Foreground", kind: "color", def: "#39ff6a" },
         { key: "bg", label: "Background", kind: "color", def: "#041008" },
         { key: "softness", label: "Edge softness", kind: "eval-num", min: 0, max: 0.5, step: 0.01, def: 0.1 },
         { key: "angle", label: "Angle (rad)", kind: "eval-num", min: -3.14, max: 3.14, step: 0.05, def: 0 }
+    ],
+    shape: [
+        { key: "kind", label: "Shape", kind: "select", options: ["circle", "ring", "rect", "line"], def: "circle" },
+        { key: "cx", label: "Center X", kind: "eval-num", min: -0.5, max: 1.5, step: 0.01, def: 0.5 },
+        { key: "cy", label: "Center Y", kind: "eval-num", min: -0.5, max: 1.5, step: 0.01, def: 0.5 },
+        { key: "r", label: "Radius", kind: "eval-num", min: 0.005, max: 1, step: 0.005, def: 0.25, when: f => f.kind === "circle" || f.kind === undefined },
+        { key: "innerR", label: "Inner radius", kind: "eval-num", min: 0, max: 1, step: 0.005, def: 0.15, when: f => f.kind === "ring" },
+        { key: "outerR", label: "Outer radius", kind: "eval-num", min: 0.005, max: 1, step: 0.005, def: 0.25, when: f => f.kind === "ring" },
+        { key: "w", label: "Width", kind: "eval-num", min: 0.01, max: 2, step: 0.01, def: 0.4, when: f => f.kind === "rect" },
+        { key: "h", label: "Height", kind: "eval-num", min: 0.01, max: 2, step: 0.01, def: 0.4, when: f => f.kind === "rect" },
+        { key: "x1", label: "Start X", kind: "eval-num", min: -0.5, max: 1.5, step: 0.01, def: 0.25, when: f => f.kind === "line" },
+        { key: "y1", label: "Start Y", kind: "eval-num", min: -0.5, max: 1.5, step: 0.01, def: 0.7, when: f => f.kind === "line" },
+        { key: "x2", label: "End X", kind: "eval-num", min: -0.5, max: 1.5, step: 0.01, def: 0.75, when: f => f.kind === "line" },
+        { key: "y2", label: "End Y", kind: "eval-num", min: -0.5, max: 1.5, step: 0.01, def: 0.3, when: f => f.kind === "line" },
+        { key: "thickness", label: "Thickness", kind: "eval-num", min: 0.001, max: 0.3, step: 0.002, def: 0.02, when: f => f.kind === "line" },
+        { key: "softness", label: "Edge softness", kind: "eval-num", min: 0, max: 0.3, step: 0.002, def: 0.008 },
+        { key: "color", label: "Color", kind: "color", def: "#ffffff" }
+    ],
+    conicGradient: [
+        { key: "cx", label: "Center X", kind: "eval-num", min: -0.5, max: 1.5, step: 0.01, def: 0.5 },
+        { key: "cy", label: "Center Y", kind: "eval-num", min: -0.5, max: 1.5, step: 0.01, def: 0.5 },
+        { key: "angle", label: "Start angle (rad)", kind: "eval-num", min: -6.28, max: 6.28, step: 0.05, def: 0 },
+        { key: "__from", label: "From", kind: "color-or-json", def: "#000000" },
+        { key: "__to", label: "To", kind: "color-or-json", def: "#ffffff" },
+        { key: "softness", label: "Seam softness", kind: "eval-num", min: 0, max: 0.49, step: 0.01, def: 0.02 }
+    ],
+    waves: [
+        { key: "wavelength", label: "Wavelength", kind: "eval-num", min: 0.01, max: 4, step: 0.01, def: 0.25 },
+        { key: "amplitude", label: "Amplitude", kind: "eval-num", min: 0, max: 1, step: 0.02, def: 1 },
+        { key: "speed", label: "Speed", kind: "eval-num", min: -4, max: 4, step: 0.05, def: 0.5 },
+        { key: "angle", label: "Direction (rad)", kind: "eval-num", min: -3.14, max: 3.14, step: 0.05, def: 0 },
+        { key: "phase", label: "Phase (rad)", kind: "eval-num", min: -6.28, max: 6.28, step: 0.05, def: 0 },
+        { key: "color", label: "Wave color", kind: "color", def: "#39ff6a" },
+        { key: "bg", label: "Background", kind: "color-or-json", def: "#000000" }
     ],
     curve: [
         { key: "x", label: "x(p)  — horizontal equation", kind: "expr", def: "sin(3*6.28318*p + t*0.4)" },
@@ -193,6 +396,7 @@ async function loadToPlayer() {
         if (playing) player.play();
         updateTransport();
         renderLayers();      // reflect adopted state
+        setInspectDefinition(parsed.definition);
         return parsed;
     } catch (e) {
         setStatus("load failed: " + e.message, "err");
@@ -255,6 +459,15 @@ function describeLayer(frag) {
             break;
         case "expression":
             bits.push("procedural math");
+            break;
+        case "shape":
+            bits.push(frag.kind ?? "circle");
+            break;
+        case "conicGradient":
+            bits.push("sweep");
+            break;
+        case "waves":
+            bits.push("wave field");
             break;
         case "livingGradient": {
             const stops = frag.stops?.length ?? "?";
@@ -381,11 +594,12 @@ function afterStructureChange() {
 // ------------------------------------------------------------------
 function buildSceneForType(type) {
     const scene = { type };
-    for (const f of TYPE_FIELDS[type] || []) {
+    const fields = TYPE_FIELDS[type] || [];
+    for (const f of fields) {
+        if (f.when && !f.when(scene)) continue;
         if (f.kind === "stops") scene.stops = JSON.parse(JSON.stringify(f.def));
         else if (f.kind === "palette") scene.palette = [...f.def];
         else if (f.kind === "int") scene[f.key] = f.def;
-        else if (f.kind === "select") scene[f.key] = typeof f.def === "number" ? f.def : f.def;
         else if (f.kind !== "color") scene[f.key] = f.def;
         else scene[f.key] = f.def;
     }
@@ -424,11 +638,12 @@ function renderLayerEditor() {
     const wrap = document.createElement("div");
 
     for (const f of TYPE_FIELDS[type] || []) {
+        if (f.when && !f.when(frag)) continue;
         wrap.appendChild(renderField(f, frag));
     }
 
     // Cheat-sheet whenever math is involved.
-    if (type === "expression" || type === "curve") {
+    if (["expression", "curve", "shape", "waves", "conicGradient"].includes(type)) {
         host.appendChild(buildCheatSheet());
     }
 
@@ -458,11 +673,14 @@ function buildCheatSheet() {
         `<summary style="cursor:pointer;color:#9fd39f">Math cheat-sheet</summary>
         <div class="hint" style="margin-top:6px">
         <b>Variables:</b> p = position along the curve (0→1) · x y u v = pixel ·
-        t = seconds · frame · width height · seed · progress<br><br>
-        <b>Recipes</b> (multiply p by 6.28318·f to make f full cycles):<br>
-        • Lissajous: x=sin(3*6.28*p+t), y=sin(4*6.28*p)<br>
-        • Rose (5 petals): x=cos(5*6.28*p)*cos(6.28*p), y=cos(5*6.28*p)*sin(6.28*p)<br>
-        • Circle: x=cos(6.28*p), y=sin(6.28*p)<br>
+        t = seconds · frame · width height · seed · progress<br>
+        <b>Constants:</b> pi · tau (= 2pi) · e &nbsp;&nbsp;
+        <b>Parameters:</b> any name from the Parameters panel works here<br><br>
+        <b>Recipes</b> (multiply p by tau·f to make f full cycles):<br>
+        • Lissajous: x=sin(3*tau*p+t), y=sin(4*tau*p)<br>
+        • Rose (5 petals): x=cos(5*tau*p)*cos(tau*p), y=cos(5*tau*p)*sin(tau*p)<br>
+        • Circle: x=cos(tau*p), y=sin(tau*p)<br>
+        • Moving emitter (shape): cx = 0.5 + 0.3*cos(t), cy = 0.5 + 0.3*sin(t)<br>
         • Damping: wrap in exp(-decay*p), or use the Decay slider<br><br>
         <b>Functions:</b> sin cos tan abs sqrt pow exp log sign<br>
         min max floor ceil fract mod clamp mix smoothstep step distance length noise<br><br>
@@ -574,6 +792,7 @@ function renderField(f, frag) {
         case "expr": {
             input = document.createElement("textarea");
             input.rows = 2;
+            input.spellcheck = false;
             input.value = frag[f.key] ?? f.def;
             input.addEventListener("input", () => {
                 frag[f.key] = input.value;
@@ -637,6 +856,7 @@ function renderField(f, frag) {
     }
 
     if (input && input.parentNode !== label) label.appendChild(input);
+    if (f.kind === "expr" && input) attachExprEditor(input);
     return label;
 }
 
@@ -746,6 +966,7 @@ function hydrateAll() {
     hydrateDesign(workingRaw);
     renderLayers();
     renderLayerEditor();
+    renderParams();
 }
 
 // ------------------------------------------------------------------
@@ -791,7 +1012,10 @@ const TYPE_DESCRIPTIONS = {
     livingGradient: "Multi-color animated gradient — great base",
     flow: "Drifting organic noise field",
     particles: "Fireflies, snow, orbits…",
-    pattern: "Dots, stripes, halftone grids",
+    pattern: "Dots, stripes, grids, halftone",
+    shape: "Circle, ring, rect, line — expressions make them move",
+    conicGradient: "Color sweep rotating around a center",
+    waves: "Traveling plane wave with angle + phase",
     curve: "Math curves — Lissajous, roses, spirographs",
     expression: "Per-pixel math (advanced)",
     gradient: "Simple 2-color gradient",
@@ -894,13 +1118,192 @@ $("btn-preset").addEventListener("click", () => {
 });
 
 // ------------------------------------------------------------------
+// Parameters panel (§8): named values with sliders, usable in any
+// expression. Values may be numbers or expressions of t.
+// ------------------------------------------------------------------
+function renderParams() {
+    const host = $("param-list");
+    host.innerHTML = "";
+    const params = workingRaw?.parameters;
+    if (!params) return;
+    for (const name of Object.keys(params)) {
+        host.appendChild(paramRow(name));
+    }
+}
+
+function paramRow(name) {
+    const params = workingRaw.parameters;
+    const spec = params[name];
+    const row = document.createElement("div");
+    row.className = "param-row";
+    row.dataset.paramName = name;
+
+    // Name (renaming does NOT rewrite expressions — validator will flag
+    // stale references in the source/status).
+    const nameEl = document.createElement("input");
+    nameEl.type = "text";
+    nameEl.value = name;
+    nameEl.spellcheck = false;
+    nameEl.addEventListener("change", () => {
+        const newName = nameEl.value.trim();
+        if (!newName || newName === name || /^[A-Za-z_][A-Za-z0-9_]*$/.test(newName) === false) {
+            nameEl.value = name;
+            return;
+        }
+        const entries = Object.entries(params);
+        const rebuilt = {};
+        for (const [k, v] of entries) rebuilt[k === name ? newName : k] = v;
+        workingRaw.parameters = rebuilt;
+        renderParams();
+        commitEdits();
+    });
+
+    // Value: number (slider-bound) or expression.
+    const valEl = document.createElement("input");
+    valEl.type = "text";
+    valEl.step = "any";
+    valEl.spellcheck = false;
+    valEl.value = String(spec.value);
+    valEl.title = "number or expression";
+
+    // Slider.
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = String(spec.min ?? 0);
+    slider.max = String(spec.max ?? 1);
+    slider.step = String(spec.step ?? 0.01);
+
+    function syncSlider() {
+        const n = typeof spec.value === "number" ? spec.value : parseFloat(spec.value);
+        if (Number.isFinite(n)) {
+            slider.disabled = false;
+            slider.value = String(Math.min(Math.max(n, parseFloat(slider.min)), parseFloat(slider.max)));
+        } else {
+            slider.disabled = true;  // expression-driven value
+        }
+    }
+
+    slider.addEventListener("input", () => {
+        spec.value = parseFloat(slider.value);
+        valEl.value = slider.value;
+        commitEdits();
+    });
+    valEl.addEventListener("input", () => {
+        spec.value = maybeNumber(valEl.value);
+        syncSlider();
+        commitEdits();
+    });
+    syncSlider();
+
+    // Delete.
+    const del = document.createElement("button");
+    del.className = "secondary pdel";
+    del.textContent = "✕";
+    del.title = `Delete ${name}`;
+    del.addEventListener("click", () => {
+        delete workingRaw.parameters[name];
+        if (Object.keys(workingRaw.parameters).length === 0) delete workingRaw.parameters;
+        renderParams();
+        commitEdits();
+    });
+
+    row.append(nameEl, slider, valEl, del);
+    return row;
+}
+
+$("btn-add-param").addEventListener("click", () => {
+    if (!workingRaw) return;
+    if (!workingRaw.parameters) workingRaw.parameters = {};
+    let i = 1;
+    while (workingRaw.parameters[`param${i}`] !== undefined) i++;
+    workingRaw.parameters[`param${i}`] = { value: 0.5, min: 0, max: 1, step: 0.01 };
+    renderParams();
+    commitEdits();
+});
+
+// ------------------------------------------------------------------
+// Timeline transport extras (§23): restart, frame stepping, speed.
+// ------------------------------------------------------------------
+$("btn-restart").addEventListener("click", () => {
+    if (!player) return;
+    player.scrub(0);
+    if (playing) player.play();
+});
+function stepFrame(dir) {
+    if (!player) return;
+    player.pause();
+    playing = false;
+    $("btn-play").innerHTML = "&#9654;";
+    const fps = player.runtime?.definition?.quality?.fps || 30;
+    player.scrub(Math.max(0, player.getTime() + dir / fps));
+}
+$("btn-step-back").addEventListener("click", () => stepFrame(-1));
+$("btn-step-fwd").addEventListener("click", () => stepFrame(1));
+$("f-speed").addEventListener("change", e => {
+    if (player) player.setPlaybackRate(parseFloat(e.target.value));
+});
+
+// ------------------------------------------------------------------
+// Pixel inspector (§22): hover the preview to read the underlying field.
+// ------------------------------------------------------------------
+const inspectorEl = $("inspector");
+const shellEl = $("shell");
+let inspDef = null;          // parsed definition for inspection
+let inspBuf = null;
+let inspT = -1;
+const INSP_W = 96, INSP_H = 54;
+
+/** Keep the inspection definition in sync whenever the player loads. */
+function setInspectDefinition(parsed) {
+    inspDef = parsed || null;
+    inspBuf = null;
+    inspT = -1;
+}
+
+function inspectAt(clientX, clientY) {
+    if (!inspDef) return;
+    const rect = shellEl.getBoundingClientRect();
+    const u = (clientX - rect.left) / Math.max(1, rect.width);
+    const v = (clientY - rect.top) / Math.max(1, rect.height);
+    if (u < 0 || u > 1 || v < 0 || v > 1) { inspectorEl.style.display = "none"; return; }
+
+    try {
+        const t = player ? player.getTime() : 0;
+        if (!inspBuf || t !== inspT) {
+            inspBuf = rasterize(inspDef, t, { width: INSP_W, height: INSP_H });
+            inspT = t;
+        }
+        const x = Math.min(INSP_W - 1, Math.round(u * (INSP_W - 1)));
+        const y = Math.min(INSP_H - 1, Math.round(v * (INSP_H - 1)));
+        const i = (y * INSP_W + x) * 3;
+        const r = inspBuf[i] / 255, g = inspBuf[i + 1] / 255, b = inspBuf[i + 2] / 255;
+        inspectorEl.textContent =
+            `x ${(u).toFixed(3)}  y ${(v).toFixed(3)}\n` +
+            `R ${(r * 100).toFixed(1)}  G ${(g * 100).toFixed(1)}  B ${(b * 100).toFixed(1)}\n` +
+            `#${toHexValue({ r, g, b })}`;
+        inspectorEl.style.display = "block";
+    } catch {
+        inspectorEl.style.display = "none";
+    }
+}
+shellEl.addEventListener("pointermove", e => {
+    if (e.pointerType === "touch") return;
+    inspectAt(e.clientX, e.clientY);
+});
+shellEl.addEventListener("pointerleave", () => { inspectorEl.style.display = "none"; });
+
+// ------------------------------------------------------------------
 // Gallery
 // ------------------------------------------------------------------
 const GALLERY = ["flowfield", "fireflies", "parallax", "plasma", "dots",
-    "gradient", "procedural", "rain", "clip", "composite"];
+    "gradient", "procedural", "rain", "clip", "composite",
+    "three-phase", "three-phase-scope", "orbiting-emitters",
+    "lissajous", "harmonograph", "rose", "spirograph"];
 const GALLERY_LABELS = {
     flowfield: "green flow", fireflies: "fireflies", parallax: "parallax mist",
-    plasma: "plasma math", dots: "dot grid"
+    plasma: "plasma math", dots: "dot grid",
+    "three-phase": "3-phase AC", "three-phase-scope": "3-phase scope",
+    "orbiting-emitters": "orbiting emitters"
 };
 
 async function initGallery() {
@@ -1029,6 +1432,7 @@ $("banner-dismiss")?.addEventListener?.("click", () => {
     hydrateDesign(workingRaw);
     renderLayers();
     renderLayerEditor();
+    renderParams();
     syncSourceFromWorking();
     initPresets();
     loadToPlayer().then(() => {
