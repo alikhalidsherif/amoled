@@ -5,8 +5,8 @@
 // classes, and produces the frozen normalized SceneDefinition.
 
 import { DISPLAY_DEFAULTS, QUALITY_DEFAULTS, ANIMATABLE_PREFIXES, STRUCTURAL_PREFIXES } from "./defaults.js";
-import { expressionReferencesTime, compileExpression } from "./expression.js";
-import { treeReferencesTime, expressionReferencesSpace } from "./evalue.js";
+import { expressionReferencesTime, compileExpression, isReservedName, isValidParamName } from "./expression.js";
+import { treeReferencesTime, expressionReferencesSpace, parametersReferenceTime } from "./evalue.js";
 
 export class AmoError extends Error {
     constructor(path, message) {
@@ -16,7 +16,7 @@ export class AmoError extends Error {
     }
 }
 
-const KNOWN_TOP_LEVEL = new Set(["amo", "meta", "display", "quality", "assets", "scene", "timeline"]);
+const KNOWN_TOP_LEVEL = new Set(["amo", "meta", "display", "quality", "assets", "scene", "timeline", "parameters"]);
 const KNOWN_DISPLAY = new Set(["pitch", "gamma", "brightness", "spill", "emitters", "bloom", "pentile"]);
 const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "flow", "particles", "curve", "expression", "composite"]);
 const KNOWN_FIT = new Set(["cover", "contain", "stretch"]);
@@ -60,11 +60,11 @@ function num(raw, path, min, max, fallback, warnings, clampable = true) {
 // Numeric E-value slot (PLAN-CREATIVE.md §A0): finite number (clamped like
 // num()) OR an expression string (validated to compile; range-clamped at
 // evaluation time by the rasterizer/compositor).
-function evalueNum(raw, path, min, max, fallback, warnings) {
+function evalueNum(raw, path, min, max, fallback, warnings, extraVars) {
     if (raw === undefined || raw === null) return fallback;
     if (typeof raw === "string") {
         try {
-            compileExpression(raw);
+            compileExpression(raw, extraVars);
         } catch (e) {
             fail(path, `invalid expression: ${e.message}`);
         }
@@ -77,7 +77,7 @@ function evalueNum(raw, path, min, max, fallback, warnings) {
 // 0-1 OR an expression string (E-value color slot, PLAN-CREATIVE.md §A0).
 // Hex strings are constants; channel expressions are validated to compile
 // and preserved verbatim for the rasterizer.
-export function normalizeColorE(raw, path, warnings) {
+export function normalizeColorE(raw, path, warnings, extraVars) {
     if (raw === undefined || raw === null) return null;
     if (typeof raw === "string") return normalizeColor(raw, path);
     if (typeof raw === "object" && !Array.isArray(raw)) {
@@ -86,7 +86,7 @@ export function normalizeColorE(raw, path, warnings) {
             const v = raw[c];
             if (typeof v === "string") {
                 try {
-                    compileExpression(v);
+                    compileExpression(v, extraVars);
                 } catch (e) {
                     fail(`${path}.${c}`, `invalid channel expression: ${e.message}`);
                 }
@@ -176,7 +176,7 @@ const KNOWN_BLENDS = new Set(["normal", "add", "multiply", "screen", "overlay"])
  * Normalizes a scene CONTENT object (top-level scene or composite layer).
  * Returns frozen { type, ...fields }. Recurses into composite layers.
  */
-function normalizeSceneContent(s, path, warnings, assets) {
+function normalizeSceneContent(s, path, warnings, assets, paramNames) {
     if (!s || typeof s !== "object") fail(path, "scene object is required");
     if (!KNOWN_SCENE_TYPES.has(s.type)) {
         fail(`${path}.type`, `unknown scene type ${JSON.stringify(s.type)}`);
@@ -192,10 +192,10 @@ function normalizeSceneContent(s, path, warnings, assets) {
     const scene = { type: s.type };
 
     if (s.type === "color") {
-        scene.color = normalizeColorE(s.color ?? "#000000", `${path}.color`, warnings) ?? { r: 0, g: 0, b: 0 };
+        scene.color = normalizeColorE(s.color ?? "#000000", `${path}.color`, warnings, paramNames) ?? { r: 0, g: 0, b: 0 };
     } else if (s.type === "gradient") {
-        scene.from = normalizeColorE(s.from ?? "#000000", `${path}.from`, warnings) ?? { r: 0, g: 0, b: 0 };
-        scene.to = normalizeColorE(s.to ?? "#ffffff", `${path}.to`, warnings) ?? { r: 1, g: 1, b: 1 };
+        scene.from = normalizeColorE(s.from ?? "#000000", `${path}.from`, warnings, paramNames) ?? { r: 0, g: 0, b: 0 };
+        scene.to = normalizeColorE(s.to ?? "#ffffff", `${path}.to`, warnings, paramNames) ?? { r: 1, g: 1, b: 1 };
         if (s.direction !== undefined && !KNOWN_DIRECTIONS.has(s.direction)) {
             fail(`${path}.direction`, `expected one of ${[...KNOWN_DIRECTIONS].join("|")}, got "${s.direction}"`);
         }
@@ -211,13 +211,13 @@ function normalizeSceneContent(s, path, warnings, assets) {
             const at = num(st.at, `${sp}.at`, 0, 1, i / (s.stops.length - 1), warnings);
             if (at < lastAt) warnings.push(`${sp}.at: stops are unsorted; they will be sorted automatically`);
             lastAt = at;
-            const color = normalizeColorE(st.color, `${sp}.color`, warnings) ?? { r: 0, g: 0, b: 0 };
+            const color = normalizeColorE(st.color, `${sp}.color`, warnings, paramNames) ?? { r: 0, g: 0, b: 0 };
             return Object.freeze({ at, color });
         });
         if (s.wobble !== undefined && s.wobble !== null) {
             if (typeof s.wobble === "string") {
                 try {
-                    compileExpression(s.wobble);
+                    compileExpression(s.wobble, paramNames);
                 } catch (e) {
                     fail(`${path}.wobble`, `invalid expression: ${e.message}`);
                 }
@@ -247,29 +247,29 @@ function normalizeSceneContent(s, path, warnings, assets) {
     } else if (s.type === "pattern") {
         const KNOWN_PATTERNS = new Set(["dots", "checks", "stripes", "scanlines", "halftone"]);
         scene.pattern = typeof s.pattern === "string" && KNOWN_PATTERNS.has(s.pattern) ? s.pattern : "dots";
-        scene.size = evalueNum(s.size, `${path}.size`, 2, 256, 8, warnings);
-        scene.thickness = evalueNum(s.thickness, `${path}.thickness`, 0, 1, 0.5, warnings);
+        scene.size = evalueNum(s.size, `${path}.size`, 2, 256, 8, warnings, paramNames);
+        scene.thickness = evalueNum(s.thickness, `${path}.thickness`, 0, 1, 0.5, warnings, paramNames);
         if (s.softness !== undefined && s.softness !== null) {
-            scene.softness = evalueNum(s.softness, `${path}.softness`, 0, 0.5, 0, warnings);
+            scene.softness = evalueNum(s.softness, `${path}.softness`, 0, 0.5, 0, warnings, paramNames);
         }
         if (s.angle !== undefined && s.angle !== null) {
-            scene.angle = evalueNum(s.angle, `${path}.angle`, -64, 64, 0, warnings);
+            scene.angle = evalueNum(s.angle, `${path}.angle`, -64, 64, 0, warnings, paramNames);
         }
         if (s.offset !== undefined && s.offset !== null) {
             if (typeof s.offset !== "object") fail(`${path}.offset`, "expected {x,y}");
             scene.offset = Object.freeze({
-                x: evalueNum(s.offset.x, `${path}.offset.x`, -4, 4, 0, warnings),
-                y: evalueNum(s.offset.y, `${path}.offset.y`, -4, 4, 0, warnings)
+                x: evalueNum(s.offset.x, `${path}.offset.x`, -4, 4, 0, warnings, paramNames),
+                y: evalueNum(s.offset.y, `${path}.offset.y`, -4, 4, 0, warnings, paramNames)
             });
         }
-        scene.fg = normalizeColorE(s.fg ?? "#39ff6a", `${path}.fg`, warnings) ?? { r: 0.22, g: 1, b: 0.42 };
-        scene.bg = normalizeColorE(s.bg ?? "#041008", `${path}.bg`, warnings) ?? { r: 0.02, g: 0.06, b: 0.03 };
+        scene.fg = normalizeColorE(s.fg ?? "#39ff6a", `${path}.fg`, warnings, paramNames) ?? { r: 0.22, g: 1, b: 0.42 };
+        scene.bg = normalizeColorE(s.bg ?? "#041008", `${path}.bg`, warnings, paramNames) ?? { r: 0.02, g: 0.06, b: 0.03 };
         if (scene.pattern === "halftone") {
             if (typeof s.signal !== "string") {
                 fail(`${path}.signal`, "halftone requires a `signal` expression string");
             }
             try {
-                compileExpression(s.signal);
+                compileExpression(s.signal, paramNames);
             } catch (e) {
                 fail(`${path}.signal`, `invalid expression: ${e.message}`);
             }
@@ -284,10 +284,10 @@ function normalizeSceneContent(s, path, warnings, assets) {
             if (!col) fail(`${path}.palette[${i}]`, "expected hex color");
             return col;
         }));
-        scene.scale = evalueNum(s.scale, `${path}.scale`, 0.1, 64, 3.5, warnings);
-        scene.speed = evalueNum(s.speed, `${path}.speed`, -8, 8, 0.12, warnings);
-        scene.warp = evalueNum(s.warp, `${path}.warp`, 0, 2, 0.5, warnings);
-        scene.contrast = evalueNum(s.contrast, `${path}.contrast`, 0.1, 4, 1, warnings);
+        scene.scale = evalueNum(s.scale, `${path}.scale`, 0.1, 64, 3.5, warnings, paramNames);
+        scene.speed = evalueNum(s.speed, `${path}.speed`, -8, 8, 0.12, warnings, paramNames);
+        scene.warp = evalueNum(s.warp, `${path}.warp`, 0, 2, 0.5, warnings, paramNames);
+        scene.contrast = evalueNum(s.contrast, `${path}.contrast`, 0.1, 4, 1, warnings, paramNames);
         scene.octaves = num(s.octaves, `${path}.octaves`, 1, 5, 3, warnings, false);
         scene.seed = isFiniteNumber(s.seed) ? s.seed : 1;
     } else if (s.type === "particles") {
@@ -295,8 +295,8 @@ function normalizeSceneContent(s, path, warnings, assets) {
         scene.behavior = typeof s.behavior === "string" && KNOWN_PARTICLE_BEHAVIORS.has(s.behavior)
             ? s.behavior : "drift";
         scene.count = Math.round(num(s.count, `${path}.count`, 0, 512, 90, warnings, false));
-        scene.speed = evalueNum(s.speed, `${path}.speed`, 0, 4, 0.2, warnings);
-        scene.glow = evalueNum(s.glow, `${path}.glow`, 0, 1, 0.6, warnings);
+        scene.speed = evalueNum(s.speed, `${path}.speed`, 0, 4, 0.2, warnings, paramNames);
+        scene.glow = evalueNum(s.glow, `${path}.glow`, 0, 1, 0.6, warnings, paramNames);
         if (isFiniteNumber(s.seed)) scene.seed = s.seed;
         // size: {min,max} fraction of height
         const sz = s.size && typeof s.size === "object" ? s.size : {};
@@ -323,44 +323,49 @@ function normalizeSceneContent(s, path, warnings, assets) {
         for (const c of ["x", "y"]) {
             if (typeof s[c] !== "string") fail(`${path}.${c}`, "curve needs string expressions for x and y");
             try {
-                compileExpression(s[c]);
+                compileExpression(s[c], paramNames);
             } catch (e) {
                 fail(`${path}.${c}`, `invalid expression: ${e.message}`);
             }
             scene[c] = s[c];
         }
         scene.samples = Math.round(num(s.samples, `${path}.samples`, 16, 4000, 800, warnings, false));
-        scene.thickness = evalueNum(s.thickness, `${path}.thickness`, 0.001, 0.2, 0.012, warnings);
-        scene.glow = evalueNum(s.glow, `${path}.glow`, 0, 1, 0.6, warnings);
-        scene.decay = evalueNum(s.decay, `${path}.decay`, 0, 2, 0, warnings);
+        scene.thickness = evalueNum(s.thickness, `${path}.thickness`, 0.001, 0.2, 0.012, warnings, paramNames);
+        scene.glow = evalueNum(s.glow, `${path}.glow`, 0, 1, 0.6, warnings, paramNames);
+        scene.decay = evalueNum(s.decay, `${path}.decay`, 0, 2, 0, warnings, paramNames);
         const col = normalizeColor(s.color ?? "#00ffcc", `${path}.color`);
         scene.color = col ?? { r: 0, g: 1, b: 0.8 };
         if (s.bg !== undefined && s.bg !== null) {
-            scene.bg = normalizeColorE(s.bg, `${path}.bg`, warnings) ?? "#000000";
+            scene.bg = normalizeColorE(s.bg, `${path}.bg`, warnings, paramNames) ?? "#000000";
         }
         if (isFiniteNumber(s.seed)) scene.seed = s.seed;
     } else if (s.type === "expression") {
         for (const c of ["r", "g", "b"]) {
             if (typeof s[c] !== "string") fail(`${path}.${c}`, "expression scenes require string expressions for r/g/b");
+            try {
+                compileExpression(s[c], paramNames);
+            } catch (e) {
+                fail(`${path}.${c}`, `invalid expression: ${e.message}`);
+            }
             scene[c] = s[c];
         }
         scene.seed = isFiniteNumber(s.seed) ? s.seed : 1;
     } else if (s.type === "composite") {
         if (!Array.isArray(s.layers)) fail(`${path}.layers`, "expected array");
         if (s.layers.length === 0) fail(`${path}.layers`, "composite needs at least one layer");
-        scene.layers = s.layers.map((l, i) => normalizeLayer(l, `${path}.layers[${i}]`, warnings, assets));
+        scene.layers = s.layers.map((l, i) => normalizeLayer(l, `${path}.layers[${i}]`, warnings, assets, paramNames));
     }
 
     return Object.freeze(scene);
 }
 
-function normalizeLayer(l, path, warnings, assets) {
+function normalizeLayer(l, path, warnings, assets, paramNames) {
     if (!l || typeof l !== "object") fail(path, "layer must be an object");
 
     // Compositing fields first (warnings reference layer path). All numeric
     // slots are E-values: number or expression string (§A0).
     const layerMeta = {};
-    layerMeta.opacity = evalueNum(l.opacity, `${path}.opacity`, 0, 1, 1, warnings);
+    layerMeta.opacity = evalueNum(l.opacity, `${path}.opacity`, 0, 1, 1, warnings, paramNames);
     if (l.blend !== undefined && !KNOWN_BLENDS.has(l.blend)) {
         fail(`${path}.blend`, `expected one of ${[...KNOWN_BLENDS].join("|")}, got "${l.blend}"`);
     }
@@ -370,10 +375,10 @@ function normalizeLayer(l, path, warnings, assets) {
     if (l.rect !== undefined && l.rect !== null) {
         if (typeof l.rect !== "object") fail(`${path}.rect`, "expected {x,y,w,h}");
         rect = Object.freeze({
-            x: evalueNum(l.rect.x, `${path}.rect.x`, -1, 1, 0, warnings),
-            y: evalueNum(l.rect.y, `${path}.rect.y`, -1, 1, 0, warnings),
-            w: evalueNum(l.rect.w, `${path}.rect.w`, 0.01, 2, 1, warnings),
-            h: evalueNum(l.rect.h, `${path}.rect.h`, 0.01, 2, 1, warnings)
+            x: evalueNum(l.rect.x, `${path}.rect.x`, -1, 1, 0, warnings, paramNames),
+            y: evalueNum(l.rect.y, `${path}.rect.y`, -1, 1, 0, warnings, paramNames),
+            w: evalueNum(l.rect.w, `${path}.rect.w`, 0.01, 2, 1, warnings, paramNames),
+            h: evalueNum(l.rect.h, `${path}.rect.h`, 0.01, 2, 1, warnings, paramNames)
         });
     }
     if (rect) layerMeta.rect = rect;
@@ -382,22 +387,22 @@ function normalizeLayer(l, path, warnings, assets) {
     if (l.offset !== undefined && l.offset !== null) {
         if (typeof l.offset !== "object") fail(`${path}.offset`, "expected {x,y}");
         offset = Object.freeze({
-            x: evalueNum(l.offset.x, `${path}.offset.x`, -1, 1, 0, warnings),
-            y: evalueNum(l.offset.y, `${path}.offset.y`, -1, 1, 0, warnings)
+            x: evalueNum(l.offset.x, `${path}.offset.x`, -1, 1, 0, warnings, paramNames),
+            y: evalueNum(l.offset.y, `${path}.offset.y`, -1, 1, 0, warnings, paramNames)
         });
     }
     if (offset) layerMeta.offset = offset;
     if (l.scale !== undefined && l.scale !== null) {
-        layerMeta.scale = evalueNum(l.scale, `${path}.scale`, 0.01, 8, 1, warnings);
+        layerMeta.scale = evalueNum(l.scale, `${path}.scale`, 0.01, 8, 1, warnings, paramNames);
     }
     if (l.rotation !== undefined && l.rotation !== null) {
-        layerMeta.rotation = evalueNum(l.rotation, `${path}.rotation`, -64, 64, 0, warnings);
+        layerMeta.rotation = evalueNum(l.rotation, `${path}.rotation`, -64, 64, 0, warnings, paramNames);
         if (typeof l.rotation === "string" && expressionReferencesSpace(l.rotation)) {
             warnings.push(`${path}.rotation: layer transforms do not vary per-pixel; x/y/u/v are ignored here`);
         }
     }
 
-    const content = normalizeSceneContent(l, path, warnings, assets);
+    const content = normalizeSceneContent(l, path, warnings, assets, paramNames);
 
     // Merge compositing fields into the frozen content copy.
     const merged = Object.assign({}, content, layerMeta);
@@ -551,8 +556,57 @@ export function validateAndNormalize(raw, baseUrl) {
         }
     }
 
+    // --- parameters (§7/§8: reusable named values usable in expressions) ---
+    let parameters = null;
+    let paramNames = null;
+    if (raw.parameters !== undefined && raw.parameters !== null) {
+        if (typeof raw.parameters !== "object" || Array.isArray(raw.parameters)) {
+            fail("parameters", "expected object of name -> value");
+        }
+        const names = Object.keys(raw.parameters);
+        if (names.length > 64) fail("parameters", "too many parameters (max 64)");
+        paramNames = new Set();
+        parameters = {};
+        for (const name of names) {
+            const p = `parameters.${name}`;
+            if (!isValidParamName(name)) {
+                fail(p, "expected identifier matching [A-Za-z_][A-Za-z0-9_]*");
+            }
+            if (isReservedName(name) || paramNames.has(name)) {
+                fail(p, `"${name}" is reserved or duplicated`);
+            }
+            paramNames.add(name);
+            const specRaw = raw.parameters[name];
+            // Shorthand: number or expression string, or full slider spec.
+            const spec = (specRaw && typeof specRaw === "object" && !Array.isArray(specRaw))
+                ? specRaw : { value: specRaw };
+            for (const k of Object.keys(spec)) {
+                if (!["value", "min", "max", "step"].includes(k)) warnings.push(`${p}.${k}: unknown field ignored`);
+            }
+            let value;
+            if (typeof spec.value === "string") {
+                try {
+                    compileExpression(spec.value);
+                } catch (e) {
+                    fail(`${p}.value`, `invalid expression: ${e.message}`);
+                }
+                value = spec.value;
+            } else {
+                value = num(spec.value, `${p}.value`, -1e6, 1e6, 0, warnings);
+            }
+            parameters[name] = Object.freeze({
+                value,
+                min: num(spec.min, `${p}.min`, -1e6, 1e6, 0, warnings),
+                max: num(spec.max, `${p}.max`, -1e6, 1e6, 1, warnings),
+                step: num(spec.step, `${p}.step`, 1e-6, 1e3, 0.01, warnings)
+            });
+        }
+        parameters = Object.freeze(parameters);
+        if (paramNames.size === 0) { parameters = null; paramNames = null; }
+    }
+
     // --- scene ---
-    const scene = normalizeSceneContent(raw.scene, "scene", warnings, assets);
+    const scene = normalizeSceneContent(raw.scene, "scene", warnings, assets, paramNames);
 
     // --- timeline ---
     let timeline = null;
@@ -609,6 +663,7 @@ export function validateAndNormalize(raw, baseUrl) {
     // --- static detection (§5.8, extended to composite layers in Phase 6) ---
     let isStatic =
         sceneIsStatic(scene) &&
+        !parametersReferenceTime(parameters) &&
         (timeline === null || timeline.keyframes.length === 0);
 
     // Budget guardrail §3.5: warn above the guaranteed-smooth budget.
@@ -625,6 +680,7 @@ export function validateAndNormalize(raw, baseUrl) {
             display,
             quality,
             assets: Object.freeze(assets),
+            parameters,
             scene: Object.freeze(scene),
             timeline,
             isStatic

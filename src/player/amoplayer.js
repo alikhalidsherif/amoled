@@ -6,6 +6,7 @@
 
 import { parseAmo, AmoError } from "../scene/parser.js";
 import { loadAssets } from "../scene/assets.js";
+import { resolveParameterValues } from "../scene/evalue.js";
 import { createRuntime } from "./runtime.js";
 import { createCacheStore } from "./cache.js";
 import { createMediaDecoderFactory } from "./media-decoder.js";
@@ -118,15 +119,28 @@ export default class AMOLEDPlayer {
                             this._gpuW !== w || this._gpuH !== h) {
                             if (this._gpuRasterizer) this._gpuRasterizer.destroy();
                             this._gpuRasterizer = new GpuExpressionRasterizer(w, h);
-                            if (!this._gpuRasterizer.setScene(def.scene)) {
+                            const paramNames = def.parameters ? Object.keys(def.parameters) : [];
+                            if (!this._gpuRasterizer.setScene(def.scene, paramNames)) {
                                 throw new Error("program compile failed");
                             }
                             this._gpuSceneKey = def;
                             this._gpuW = w;
                             this._gpuH = h;
                         }
+                        // Resolve parameter expressions (layer-level env).
+                        let paramValues = null;
+                        if (def.parameters) {
+                            paramValues = resolveParameterValues(def.parameters, {
+                                t,
+                                frame: Math.floor(t * Math.max(1, fps)),
+                                width: w, height: h,
+                                progress: duration > 0 && loops ? (t % duration) / duration
+                                    : (duration > 0 ? Math.min(1, t / duration) : 0),
+                                seed: def.scene.seed | 0
+                            });
+                        }
                         return this._gpuRasterizer.render(t, fps,
-                            duration > 0 && loops ? (t % duration) / duration : 0);
+                            duration > 0 && loops ? (t % duration) / duration : 0, paramValues);
                     } catch (err) {
                         console.warn("[amoled-player] GPU raster failed, falling back to CPU:", err.message);
                         this._forceCpuRaster = true;

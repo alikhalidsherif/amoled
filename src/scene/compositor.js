@@ -16,7 +16,7 @@
 // per-pixel (validator warns if such an expression references x/y/u/v).
 
 import { rasterizeScene } from "../scene/rasterizer.js";
-import { resolveNamed, makeEnv } from "./evalue.js";
+import { resolveNamed, makeEnv, applyParameters } from "./evalue.js";
 
 const BLEND = {
     normal: (a, b) => b,
@@ -56,6 +56,7 @@ export function compositeLayers(layers, definition, t, size, assets, out, worksp
     const tl = definition && definition.timeline ? definition.timeline : {};
     const env = makeEnv(t, w, h, q.fps, tl.duration,
         definition && definition.scene && definition.scene.seed);
+    applyParameters(env, definition && definition.parameters);
 
     for (let li = 0; li < layers.length; li++) {
         const layer = layers[li];

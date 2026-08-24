@@ -5,7 +5,7 @@
   "description": "Diamond PenTile AMOLED subpixel simulator with .amo scene system",
   "type": "module",
   "scripts": {
-    "test": "node tests/lattice-parity.js && node tests/amo-parser.test.js && node tests/evalue.test.js && node tests/primitives.test.js && node tests/presets.test.js && node tests/timeline.test.js && node tests/expression.test.js && node tests/expression-glsl.test.js && node tests/compositor.test.js && node tests/quality.test.js",
+    "test": "node tests/lattice-parity.js && node tests/amo-parser.test.js && node tests/evalue.test.js && node tests/primitives.test.js && node tests/presets.test.js && node tests/timeline.test.js && node tests/expression.test.js && node tests/expression-glsl.test.js && node tests/compositor.test.js && node tests/quality.test.js && node tests/parameters.test.js",
     "test:browser": "node tests/browser/smoke.js && node tests/browser/regression.js && node tests/browser/phase3.mjs && node tests/browser/phase4.mjs && node tests/browser/phase5.mjs && node tests/browser/phase6.mjs && node tests/browser/phase7.mjs && node tests/browser/phase8.mjs && node tests/browser/phase9.mjs && node tests/browser/phase10.mjs"
   }
 }

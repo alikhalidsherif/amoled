@@ -17,6 +17,20 @@
 import { compileExpression, expressionReferencesTime } from "./expression.js";
 
 // ------------------------------------------------------------------
+// Runtime recompilation helper
+// ------------------------------------------------------------------
+
+/**
+ * Compile an expression for lazy runtime use (rasterizer caches etc.).
+ * The validator has already rejected undeclared identifiers with precise
+ * error paths; this permissive mode simply allows parameter identifiers to
+ * resolve dynamically from the env.
+ */
+export function compileRuntimeExpr(source) {
+    return compileExpression(source, undefined, true).eval;
+}
+
+// ------------------------------------------------------------------
 // Slot compilation + caching
 // ------------------------------------------------------------------
 
@@ -29,7 +43,7 @@ export function compileSlot(spec) {
         return { kind: "const", value: spec };
     }
     // Expression string.
-    return { kind: "expr", eval: compileExpression(String(spec)).eval };
+    return { kind: "expr", eval: compileRuntimeExpr(String(spec)) };
 }
 
 /** True when the slot spec is an expression string referencing t/frame. */
@@ -86,7 +100,7 @@ export function compileColorSlot(spec) {
         const raw = spec ? spec[c] : undefined;
         if (typeof raw === "string") {
             allConst = false;
-            channels[c] = { kind: "expr", eval: compileExpression(raw).eval };
+            channels[c] = { kind: "expr", eval: compileRuntimeExpr(raw) };
             if (expressionReferencesTime(raw)) dynamic = true;
         } else {
             const v = typeof raw === "number" && Number.isFinite(raw)
@@ -140,6 +154,79 @@ export function makeEnv(t, width, height, fps, duration, seed) {
         seed: seed | 0,
         progress: duration > 0 ? Math.min(1, t / duration) : 0
     };
+}
+
+// ------------------------------------------------------------------
+// Scene parameters (PLAN_GENERATOR_OVERHAUL.md §7/§8)
+// ------------------------------------------------------------------
+//
+// A definition may carry `parameters`: { name -> {value, min, max, step} }
+// where `value` is a finite number or an expression string (evaluated once
+// per frame with a layer-level env — no x/y). Resolved values are assigned
+// onto the evaluation env by name so compiled expressions read them via the
+// ordinary identifier path. Parameter expressions may reference t/frame
+// (animated parameters) but NOT other parameters (no ordering hazards).
+
+const paramProgramCache = new WeakMap(); // parameters object -> Map(name -> slot)
+
+function getParamPrograms(parameters) {
+    let progs = paramProgramCache.get(parameters);
+    if (!progs) {
+        progs = new Map();
+        for (const name of Object.keys(parameters || {})) {
+            const raw = parameters[name].value;
+            progs.set(name, typeof raw === "string"
+                ? compileRuntimeExpr(raw)
+                : null);
+        }
+        paramProgramCache.set(parameters, progs);
+    }
+    return progs;
+}
+
+/**
+ * Resolve all parameter values for this frame.
+ * @returns {object|null} plain {name -> number}, or null when no parameters.
+ */
+export function resolveParameterValues(parameters, env) {
+    if (!parameters) return null;
+    const names = Object.keys(parameters);
+    if (names.length === 0) return null;
+    const progs = getParamPrograms(parameters);
+    const out = {};
+    for (const name of names) {
+        const prog = progs.get(name);
+        const spec = parameters[name];
+        let v = prog ? prog(0, 0, env) : spec.value;
+        if (!Number.isFinite(v)) v = 0;
+        out[name] = v;
+    }
+    return out;
+}
+
+/**
+ * Resolve parameters and assign them onto `env` by name (mutates env).
+ * Call right after makeEnv() and before any per-pixel evaluation.
+ * @returns {object|null} the resolved plain-values object (null if none).
+ */
+export function applyParameters(env, parameters) {
+    const vals = resolveParameterValues(parameters, env);
+    if (!vals) return null;
+    for (const name of Object.keys(vals)) env[name] = vals[name];
+    return vals;
+}
+
+/**
+ * Do any parameter value expressions reference time?
+ * Feeds static detection (validator).
+ */
+export function parametersReferenceTime(parameters) {
+    if (!parameters) return false;
+    for (const name of Object.keys(parameters)) {
+        const raw = parameters[name] && parameters[name].value;
+        if (typeof raw === "string" && expressionReferencesTime(raw)) return true;
+    }
+    return false;
 }
 
 // ------------------------------------------------------------------

@@ -60,12 +60,17 @@ export class GpuExpressionRasterizer {
 
     /**
      * Compile r/g/b expressions of a scene into one fragment program.
+     * @param {object} scene - normalized expression scene content.
+     * @param {string[]} [paramNames] - scene parameter names (become uniforms).
      * @returns {boolean} success.
      */
-    setScene(scene) {
+    setScene(scene, paramNames) {
         const gl = this.gl;
+        const names = paramNames || [];
         let prog = null;
         try {
+            const uniforms = names.map(n => `uniform float uP_${n};`).join("\n");
+            const extraVars = names.length ? new Set(names) : undefined;
             const vs = `#version 300 es
 layout(location=0) in vec2 p;
 void main(){ gl_Position = vec4(p,0.,1.); }`;
@@ -79,6 +84,7 @@ uniform float uProgress;
 uniform uint uSeed;
 uniform float uWidth;
 uniform float uHeight;
+${uniforms}
 ${GLSL_PRELUDE}
 void main(){
     float x = floor(gl_FragCoord.x);
@@ -87,9 +93,9 @@ void main(){
     float height = uHeight;
     float u = x / max(1.0, width - 1.0);
     float v = y / max(1.0, height - 1.0);
-    float r = ${compileToGLSL(scene.r)};
-    float g = ${compileToGLSL(scene.g)};
-    float b = ${compileToGLSL(scene.b)};
+    float r = ${compileToGLSL(scene.r, extraVars)};
+    float g = ${compileToGLSL(scene.g, extraVars)};
+    float b = ${compileToGLSL(scene.b, extraVars)};
     outColor = vec4(clamp(r,0.,1.), clamp(g,0.,1.), clamp(b,0.,1.), 1.0);
 }`;
             prog = this._link(vs, fs);
@@ -107,6 +113,10 @@ void main(){
         this.uSeed = gl.getUniformLocation(prog, "uSeed");
         this.uWidth = gl.getUniformLocation(prog, "uWidth");
         this.uHeight = gl.getUniformLocation(prog, "uHeight");
+        this.paramLocations = new Map();
+        for (const n of names) {
+            this.paramLocations.set(n, gl.getUniformLocation(prog, "uP_" + n));
+        }
 
         gl.useProgram(prog);
         gl.uniform1f(this.uWidth, this.width);
@@ -145,7 +155,7 @@ void main(){
     }
 
     /** Render one frame at time t; returns the offscreen canvas for upload. */
-    render(t, fps, progress) {
+    render(t, fps, progress, paramValues) {
         const gl = this.gl;
         if (!this.program) return null;
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -154,6 +164,12 @@ void main(){
         gl.uniform1f(this.uT, t);
         gl.uniform1f(this.uFps, fps || 30);
         gl.uniform1f(this.uProgress, progress || 0);
+        if (this.paramLocations && paramValues) {
+            for (const [name, loc] of this.paramLocations) {
+                const v = paramValues[name];
+                if (loc && typeof v === "number") gl.uniform1f(loc, v);
+            }
+        }
         gl.bindVertexArray(this.vao);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
         gl.bindVertexArray(null);

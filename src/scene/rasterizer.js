@@ -2,20 +2,21 @@
 // CPU-only in v1. Steady-state per-frame paths allocate nothing when the
 // caller supplies a reusable output buffer.
 
-import { compileExpression } from "./expression.js";
-import { compileColorSlot, resolveNamed, makeEnv } from "./evalue.js";
+import { compileRuntimeExpr } from "./evalue.js";
+import { compileColorSlot, resolveNamed, makeEnv, applyParameters } from "./evalue.js";
 
 // Compiled expression programs, cached per scene object (WeakMap: frozen
-// scene objects are valid keys; GC-friendly).
+// scene objects are valid keys; GC-friendly). Programs are parameter-agnostic:
+// declared parameter identifiers resolve from the env at evaluation time.
 const programCache = new WeakMap();
 
 function getProgram(scene) {
     let prog = programCache.get(scene);
     if (!prog) {
         prog = {
-            r: compileExpression(scene.r),
-            g: compileExpression(scene.g),
-            b: compileExpression(scene.b)
+            r: compileRuntimeExpr(scene.r),
+            g: compileRuntimeExpr(scene.g),
+            b: compileRuntimeExpr(scene.b)
         };
         programCache.set(scene, prog);
     }
@@ -120,7 +121,7 @@ function getPatternProgram(scene) {
             fg: compileColorSlot(scene.fg),
             bg: compileColorSlot(scene.bg),
             signal: typeof scene.signal === "string"
-                ? compileExpression(scene.signal).eval : null
+                ? compileRuntimeExpr(scene.signal) : null
         };
         patternCache.set(scene, prog);
     }
@@ -145,17 +146,17 @@ function rasterizePattern(scene, w, h, t, definition, out) {
     // Per-frame resolution of scalar slots when they are constants (common);
     // expression slots fall into the per-pixel path below.
     const numOrExpr = spec => (typeof spec === "number" ? () => spec : null);
-    const sizeF = numOrExpr(scene.size) || compileExpression(String(scene.size)).eval;
+    const sizeF = numOrExpr(scene.size) || compileRuntimeExpr(String(scene.size));
     const thickF = scene.thickness === undefined ? null
-        : (numOrExpr(scene.thickness) || compileExpression(String(scene.thickness)).eval);
+        : (numOrExpr(scene.thickness) || compileRuntimeExpr(String(scene.thickness)));
     const softF = scene.softness === undefined ? null
-        : (numOrExpr(scene.softness) || compileExpression(String(scene.softness)).eval);
+        : (numOrExpr(scene.softness) || compileRuntimeExpr(String(scene.softness)));
     const angleF = scene.angle === undefined ? null
-        : (numOrExpr(scene.angle) || compileExpression(String(scene.angle)).eval);
+        : (numOrExpr(scene.angle) || compileRuntimeExpr(String(scene.angle)));
     const offXF = scene.offset && scene.offset.x !== undefined && typeof scene.offset.x !== "number"
-        ? compileExpression(scene.offset.x).eval : null;
+        ? compileRuntimeExpr(scene.offset.x) : null;
     const offYF = scene.offset && scene.offset.y !== undefined && typeof scene.offset.y !== "number"
-        ? compileExpression(scene.offset.y).eval : null;
+        ? compileRuntimeExpr(scene.offset.y) : null;
 
     let i = 0;
     for (let y = 0; y < h; y++) {
@@ -269,10 +270,10 @@ function rasterizeParticles(scene, w, h, t, definition, out) {
     const behavior = scene.behavior || "drift";
     const glow = typeof scene.glow === "number" ? scene.glow
         : (typeof scene.glow === "string"
-            ? clampf(compileExpression(scene.glow).eval(env.x, env.y, env)) : 0.6);
+            ? clampf(compileRuntimeExpr(scene.glow)(env.x, env.y, env)) : 0.6);
     const baseSpeed = typeof scene.speed === "number" ? scene.speed
         : (typeof scene.speed === "string"
-            ? Math.max(0, compileExpression(String(scene.speed)).eval(env.x, env.y, env)) : 0.2);
+            ? Math.max(0, compileRuntimeExpr(String(scene.speed))(env.x, env.y, env)) : 0.2);
     const palette = Array.isArray(scene.color) ? scene.color : [scene.color];
 
     for (let i = 0; i < count; i++) {
@@ -360,8 +361,8 @@ function getCurveProgram(scene) {
     let prog = curveCache.get(scene);
     if (!prog) {
         prog = {
-            x: compileExpression(String(scene.x)).eval,
-            y: compileExpression(String(scene.y)).eval,
+            x: compileRuntimeExpr(String(scene.x)),
+            y: compileRuntimeExpr(String(scene.y)),
             color: scene.color ?? { r: 0, g: 1, b: 0.8 },
             bg: compileColorSlot(scene.bg ?? "#000000")
         };
@@ -399,7 +400,7 @@ function rasterizeCurve(scene, w, h, t, definition, out) {
     const rPx = Math.max(0.6, thickness * h * 0.5);
     const glow = typeof scene.glow === "number"
         ? scene.glow
-        : (typeof scene.glow === "string" ? clampf(compileExpression(scene.glow).eval(0, 0, env)) : 0.6);
+        : (typeof scene.glow === "string" ? clampf(compileRuntimeExpr(scene.glow)(0, 0, env)) : 0.6);
     const falloff = 1 + 3 * (1 - glow);
     const decay = typeof scene.decay === "number" ? scene.decay : 0;
     const col = prog.color;
@@ -477,7 +478,7 @@ function rasterizeFlow(scene, w, h, t, definition, out) {
 
     const scalar = (spec, fallback) => {
         if (spec === undefined || spec === null) return () => fallback;
-        return typeof spec === "number" ? () => spec : compileExpression(String(spec)).eval;
+        return typeof spec === "number" ? () => spec : compileRuntimeExpr(String(spec));
     };
     const scaleF = scalar(scene.scale, 3.5);
     const speedF = scalar(scene.speed, 0.12);
@@ -546,7 +547,7 @@ function rasterizeLivingGradient(scene, w, h, t, definition, out) {
     const prog = getLivingProgram(scene);
     const env = sceneEnv(definition, t, w, h, scene.seed);
     const ampSlot = typeof scene.wobble === "string"
-        ? compileExpression(scene.wobble).eval
+        ? compileRuntimeExpr(scene.wobble)
         : null;
     const ampConst = typeof scene.wobble === "number" ? scene.wobble : 0;
 
@@ -630,10 +631,11 @@ function rasterizeExpression(definition, scene, w, h, t, out) {
     if (definition.timeline && definition.timeline.duration > 0) {
         E.progress = Math.min(1, t / definition.timeline.duration);
     }
+    applyParameters(E, definition.parameters);
 
-    const { eval: evalR } = prog.r;
-    const { eval: evalG } = prog.g;
-    const { eval: evalB } = prog.b;
+    const evalR = prog.r;
+    const evalG = prog.g;
+    const evalB = prog.b;
 
     let i = 0;
     for (let y = 0; y < h; y++) {
@@ -676,7 +678,9 @@ function rasterizeImage(scene, w, h, assets, out) {
 function sceneEnv(definition, t, w, h, seed) {
     const q = definition && definition.quality ? definition.quality : {};
     const tl = definition && definition.timeline ? definition.timeline : {};
-    return makeEnv(t, w, h, q.fps, tl.duration, seed);
+    const env = makeEnv(t, w, h, q.fps, tl.duration, seed);
+    applyParameters(env, definition && definition.parameters);
+    return env;
 }
 
 /**

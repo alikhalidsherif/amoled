@@ -64,6 +64,9 @@ export class AmoExprError extends Error {
 
 const VARIABLES = new Set(["x", "y", "t", "frame", "width", "height", "u", "v", "seed", "progress", "p"]);
 
+// Named mathematical constants folded at compile time (§5).
+const CONSTANTS = { pi: Math.PI, tau: Math.PI * 2, e: Math.E };
+
 const FUNCTIONS = {
     sin: Math.sin, cos: Math.cos, tan: Math.tan,
     asin: Math.asin, acos: Math.acos,
@@ -94,7 +97,7 @@ const FUNCTIONS = {
     noise: { fn: (x, y) => NaN, arity: 2 } // bound to env seed at compile
 };
 
-function parseExpressionProgram(src) {
+function parseExpressionProgram(src, extraVars, allowUnknown) {
     const tokens = tokenize(src);
     let pos = 0;
 
@@ -199,8 +202,13 @@ function parseExpressionProgram(src) {
                 }
                 return { kind: "call", name: tk.name, args };
             }
-            if (!VARIABLES.has(tk.name)) {
-                throw new AmoExprError(`unknown identifier "${tk.name}" at ${tk.pos}`);
+            if (!VARIABLES.has(tk.name) && !(tk.name in CONSTANTS) && !(extraVars && extraVars.has(tk.name))) {
+                if (!allowUnknown) {
+                    throw new AmoExprError(`unknown identifier "${tk.name}" at ${tk.pos}`);
+                }
+            }
+            if (tk.name in CONSTANTS) {
+                return { kind: "num", value: CONSTANTS[tk.name] };
             }
             return { kind: "var", name: tk.name };
         }
@@ -335,9 +343,28 @@ function safeDiv(a, b) {
 // Public API
 // ------------------------------------------------------------------
 
+/** True when name is a built-in variable, constant, or function (reserved for parameters). */
+export function isReservedName(name) {
+    return VARIABLES.has(name) || (name in CONSTANTS) ||
+        Object.prototype.hasOwnProperty.call(FUNCTIONS, name);
+}
+
+/** Valid identifier for a scene parameter name. */
+export function isValidParamName(name) {
+    return typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+}
+
+/** Names of built-in mathematical constants (pi, tau, e). */
+export const CONSTANT_NAMES = Object.freeze(Object.keys(CONSTANTS));
+
+/** All variable names available to expressions. */
+export const VARIABLE_NAMES = Object.freeze([...VARIABLES]);
+
+/** Function names available to expressions. */
+export const FUNCTION_NAMES = Object.freeze(Object.keys(FUNCTIONS));
+
 /** True when the source references time (t/frame) — used for static detection. */
-export function expressionReferencesTime(source) {
-    try {
+export function expressionReferencesTime(source) {    try {
         const tokens = tokenize(source);
         return tokens.some(tk => tk.type === "ident" && (tk.name === "t" || tk.name === "frame"));
     } catch (e) {
@@ -347,10 +374,16 @@ export function expressionReferencesTime(source) {
 
 /**
  * Compile an expression source once.
+ * @param {string} source
+ * @param {Set<string>} [extraVars] - additional allowed identifiers (scene
+ *   parameters). They resolve at evaluation time from env[name].
+ * @param {boolean} [allowUnknown] - accept undeclared identifiers as dynamic
+ *   env lookups (runtime recompilation path; the validator is the gatekeeper
+ *   that guarantees identifiers were declared).
  * @returns {{ eval: (x:number, y:number, E:object) => number, ast: object }}
  */
-export function compileExpression(source) {
-    const ast = parseExpressionProgram(String(source));
+export function compileExpression(source, extraVars, allowUnknown) {
+    const ast = parseExpressionProgram(String(source), extraVars, allowUnknown);
     const fn = compileNode(ast);
     return {
         ast,
@@ -431,7 +464,7 @@ float amo_noise(uint seed, float x, float y) {
     return mix(a, b, sy);
 }`;
 
-function toGLSLNode(node) {
+function toGLSLNode(node, extraVars) {
     switch (node.kind) {
         case "num": return node.value.toFixed(8);
         case "var":
@@ -440,24 +473,28 @@ function toGLSLNode(node) {
                 case "frame": return "float(int(uT * uFps))";
                 case "progress": return "uProgress";
                 case "seed": return "float(uSeed)";
-                default: return node.name; // x y u v width height
+                default:
+                    if (extraVars && extraVars.has(node.name)) {
+                        return "uP_" + node.name; // scene parameter uniform
+                    }
+                    return node.name; // x y u v width height
             }
-        case "neg": return "(-" + toGLSLNode(node.arg) + ")";
-        case "cmp": return "(" + toGLSLNode(node.left) + node.op + toGLSLNode(node.right) + " ? 1.0 : 0.0)";
-        case "cond": return "(" + toGLSLNode(node.cond) + " != 0.0 ? " +
-            toGLSLNode(node.thenE) + " : " + toGLSLNode(node.elseE) + ")";
+        case "neg": return "(-" + toGLSLNode(node.arg, extraVars) + ")";
+        case "cmp": return "(" + toGLSLNode(node.left, extraVars) + node.op + toGLSLNode(node.right, extraVars) + " ? 1.0 : 0.0)";
+        case "cond": return "(" + toGLSLNode(node.cond, extraVars) + " != 0.0 ? " +
+            toGLSLNode(node.thenE, extraVars) + " : " + toGLSLNode(node.elseE, extraVars) + ")";
         case "bin": {
-            if (node.op === "/") return "amo_div(" + toGLSLNode(node.left) + ", " + toGLSLNode(node.right) + ")";
-            return "(" + toGLSLNode(node.left) + " " + node.op + " " + toGLSLNode(node.right) + ")";
+            if (node.op === "/") return "amo_div(" + toGLSLNode(node.left, extraVars) + ", " + toGLSLNode(node.right, extraVars) + ")";
+            return "(" + toGLSLNode(node.left, extraVars) + " " + node.op + " " + toGLSLNode(node.right, extraVars) + ")";
         }
-        case "pow": return "amo_pow(" + toGLSLNode(node.base) + ", " + toGLSLNode(node.exp) + ")";
+        case "pow": return "amo_pow(" + toGLSLNode(node.base, extraVars) + ", " + toGLSLNode(node.exp, extraVars) + ")";
         case "call": {
             if (node.name === "noise") {
-                return "amo_noise(uint(uSeed), " + toGLSLNode(node.args[0]) + ", " + toGLSLNode(node.args[1]) + ")";
+                return "amo_noise(uint(uSeed), " + toGLSLNode(node.args[0], extraVars) + ", " + toGLSLNode(node.args[1], extraVars) + ")";
             }
             const glslName = GLSL_FUNC_MAP[node.name];
             if (!glslName) throw new AmoExprError(`no GLSL mapping for "${node.name}"`);
-            return glslName + "(" + node.args.map(toGLSLNode).join(", ") + ")";
+            return glslName + "(" + node.args.map(a => toGLSLNode(a, extraVars)).join(", ") + ")";
         }
         default:
             throw new AmoExprError(`cannot convert node kind "${node.kind}" to GLSL`);
@@ -466,9 +503,12 @@ function toGLSLNode(node) {
 
 /**
  * Compile an expression source to a GLSL expression string (r-value float).
+ * @param {string} source
+ * @param {Set<string>} [extraVars] - scene parameter names; each becomes a
+ *   `uP_<name>` uniform the caller must declare and populate.
  * Throws AmoExprError for unsupported constructs.
  */
-export function compileToGLSL(source) {
-    const ast = parseExpressionProgram(String(source));
-    return toGLSLNode(ast);
+export function compileToGLSL(source, extraVars) {
+    const ast = parseExpressionProgram(String(source), extraVars);
+    return toGLSLNode(ast, extraVars);
 }
