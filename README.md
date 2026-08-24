@@ -93,9 +93,12 @@ player.play(); player.pause(); player.scrub(3.2);
 | `color` | Solid color; channels accept expressions |
 | `gradient` | 2-stop gradient; per-channel expression colors supported |
 | `livingGradient` | Multi-stop animated gradient with sinusoidal `wobble` |
-| `pattern` | Generators: `dots`, `checks`, `stripes`, `scanlines`, `halftone` — size/thickness/angle/offset all animatable |
+| `pattern` | Generators: `dots`, `checks`, `stripes`, `scanlines`, `halftone`, `grid` — size/thickness/angle/offset all animatable |
 | `flow` | Domain-warped fbm noise field mapped through a color palette (the "living background" workhorse) |
 | `particles` | Stateless seeded particle systems: `drift`, `orbit`, `rise`, `fall`, `fireflies`, `snow` |
+| `shape` | `circle`, `ring`, `rect`, `line` primitives with soft edges — expression geometry makes them moving emitters |
+| `conicGradient` | Color sweep rotating around a center point |
+| `waves` | Traveling plane wave with wavelength/amplitude/speed/angle/phase |
 | `curve` | Parametric math art — Lissajous, harmonographs, roses, spirographs via `x(p)`/`y(p)` expressions with glow and damping |
 | `expression` | Per-pixel math: `r/g/b` expressions over `x y t u v noise(...)` |
 | `image` / `gif` / `video` | Media sources, rasterized to logical resolution |
@@ -119,9 +122,29 @@ literal:
 ]}
 ```
 
-Variables: `x y t frame u v width height seed progress`. Functions include
+Variables: `x y t frame u v width height seed progress`. Constants: `pi tau e`.
+Functions include
 `sin cos abs sqrt pow min max clamp mix smoothstep fract mod distance length noise`.
 All randomness is seeded — same `.amo` + same time ⇒ identical output.
+
+### Named parameters
+
+Scenes can declare reusable values usable in **any** expression slot, with
+optional slider metadata for generators:
+
+```json
+"parameters": { "omega": { "value": 2, "min": 0, "max": 12, "step": 0.1 } },
+"scene": {
+  "type": "expression",
+  "r": "clamp(0.5 + 0.5*sin(omega*tau*t), 0, 1)",
+  "g": "clamp(0.5 + 0.5*sin(omega*tau*t - tau/3), 0, 1)",
+  "b": "clamp(0.5 + 0.5*sin(omega*tau*t - 2*tau/3), 0, 1)"
+}
+```
+
+Parameter values may themselves be expressions of `t` (animated parameters).
+See [docs/AMO_FORMAT.md](docs/AMO_FORMAT.md) for the full format reference,
+including the canonical coordinate system.
 
 ### Static-scene invariant
 
@@ -139,8 +162,11 @@ and never touches art direction.
 ### Authoring
 
 The hybrid studio at `/generator/index.html` offers live preview through the real
-player, a round-tripping `.amo` source pane, timeline scrubbing, motion presets
-(pulse/orbit/sway/flicker/hueDrift/… that expand to plain expressions), and export.
+player, a round-tripping `.amo` source pane, timeline scrubbing with frame
+stepping and speed control, motion presets
+(pulse/orbit/sway/flicker/hueDrift/… that expand to plain expressions),
+a Desmos-style expression editor (syntax highlighting, autocomplete, inline
+errors), named parameter sliders, and a pixel inspector — plus export.
 See `scenes/*.amo` for a gallery of every feature.
 
 ## API
