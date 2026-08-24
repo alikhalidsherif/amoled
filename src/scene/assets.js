@@ -32,12 +32,7 @@ export async function loadAssets(definition, cache, decoderFactory) {
             if (!decoderFactory) throw new Error(`asset "${name}": video needs a decoderFactory`);
             decoded = await decoderFactory.video(url);
         } else {
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`asset "${name}": failed to load ${url} (${response.status})`);
-            }
-            const blob = await response.blob();
-            decoded = await createImageBitmap(blob);
+            decoded = await decodeImage(url);
         }
 
         store.set(url, decoded);
@@ -54,4 +49,37 @@ function collectAssetUses(scene, name) {
         return scene.layers.filter(l => l && l.asset === name);
     }
     return scene.asset === name ? [scene] : [];
+}
+
+/**
+ * Decode a static image via an <img> element (works over file:// where
+ * fetch() is blocked), converting to an ImageBitmap when supported.
+ */
+function decodeImage(url) {
+    if (typeof Image === "undefined") {
+        // Non-browser environment (unit tests): plain fetch path.
+        return fetch(url)
+            .then(r => { if (!r.ok) throw new Error(`failed to load image ${url} (${r.status})`); return r.blob(); })
+            .then(b => createImageBitmap(b));
+    }
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = async () => {
+            try {
+                if (typeof createImageBitmap === "function") {
+                    resolve(await createImageBitmap(img));
+                } else {
+                    resolve(img);
+                }
+            } catch (e) {
+                resolve(img);   // bitmap conversion failed; element still drawable
+            }
+        };
+        img.onerror = () =>
+            reject(new Error(`failed to load image ${url}` +
+                (location.protocol === "file:"
+                    ? " (opening scenes from disk limits media; serve via a local server for GIF/video)"
+                    : "")));
+        img.src = url;
+    });
 }

@@ -130,7 +130,7 @@ const TYPE_FIELDS = {
             { key: "fit", label: "Fit", kind: "select", options: ["cover", "contain", "stretch"], def: "cover" }],
     gif: [{ key: "__assetUrl", label: "GIF URL", kind: "asset", def: "../assets/test-portrait.gif" },
           { key: "fit", label: "Fit", kind: "select", options: ["cover", "contain", "stretch"], def: "cover" }],
-    video: [{ key: "__assetUrl", label: "Video URL", kind: "asset", def: "../assets/clip.webm" }]
+    video: [{ key: "__assetUrl", label: "Video URL (.webm/.mp4)", kind: "asset", def: "" }]
 };
 
 // Transform/blending fields available on every layer of a composite.
@@ -315,13 +315,13 @@ function ensureComposite() {
 
 $("btn-add-layer").addEventListener("click", () => {
     ensureComposite();
-    const type = prompt("Layer type:\n" + SCENE_TYPES.map((t, i) => `${i}: ${t}`).join("\n") + "\n(default: flow)", "flow");
-    if (type === null) return;
-    const t = SCENE_TYPES.includes(type.trim()) ? type.trim() : "flow";
-    const frag = buildSceneForType(t);
-    workingRaw.scene.layers.push(frag);
-    selected = { kind: "layer", index: workingRaw.scene.layers.length - 1 };
-    afterStructureChange();
+    openTypePicker(t => {
+        const frag = buildSceneForType(t);
+        workingRaw.scene.layers.push(frag);
+        selected = { kind: "layer", index: workingRaw.scene.layers.length - 1 };
+        afterStructureChange();
+        switchTab("layers");
+    });
 });
 
 $("btn-dup-layer").addEventListener("click", () => {
@@ -749,18 +749,62 @@ document.addEventListener("keydown", e => {
 });
 
 // ------------------------------------------------------------------
+// Add-layer type picker modal (replaces prompt())
+// ------------------------------------------------------------------
+const TYPE_DESCRIPTIONS = {
+    livingGradient: "Multi-color animated gradient — great base",
+    flow: "Drifting organic noise field",
+    particles: "Fireflies, snow, orbits…",
+    pattern: "Dots, stripes, halftone grids",
+    expression: "Per-pixel math (advanced)",
+    gradient: "Simple 2-color gradient",
+    color: "Solid color",
+    image: "Static picture",
+    gif: "Animated GIF",
+    video: "Video clip"
+};
+
+function openTypePicker(onPick) {
+    const existing = document.getElementById("type-picker");
+    if (existing) existing.remove();
+    const overlay = document.createElement("div");
+    overlay.id = "type-picker";
+    overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:50;" +
+        "display:flex;align-items:center;justify-content:center;padding:16px;";
+    const card = document.createElement("div");
+    card.style.cssText =
+        "background:#101010;border:1px solid #2a2a2a;border-radius:8px;" +
+        "padding:14px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;";
+    card.innerHTML = `<h2 style="margin-top:0">Add a layer</h2>`;
+    for (const t of SCENE_TYPES) {
+        const btn = document.createElement("button");
+        btn.style.cssText = "display:block;width:100%;text-align:left;margin-top:6px;";
+        btn.innerHTML = `<b>${t}</b><br><span style="color:#888;font-size:11px">${TYPE_DESCRIPTIONS[t] || ""}</span>`;
+        btn.addEventListener("click", () => { overlay.remove(); onPick(t); });
+        card.appendChild(btn);
+    }
+    const cancel = document.createElement("button");
+    cancel.className = "secondary";
+    cancel.textContent = "Cancel";
+    cancel.style.cssText = "width:100%;margin-top:10px;";
+    cancel.addEventListener("click", () => overlay.remove());
+    card.appendChild(cancel);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+}
+
+// ------------------------------------------------------------------
 // Tabs
 // ------------------------------------------------------------------
 document.querySelectorAll("#tabs button").forEach(btn => {
-    btn.addEventListener("click", () => {
-        document.querySelectorAll("#tabs button").forEach(b => b.classList.remove("active"));
-        document.querySelectorAll(".tabpane").forEach(p => p.classList.remove("active"));
-        btn.classList.add("active");
-        $(`[data-pane="${btn.dataset.tab}"]`).classList.add("active");
-    });
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 });
 function switchTab(name) {
-    $(`#tabs button[data-tab="${name}"]`).click();
+    document.querySelectorAll("#tabs button").forEach(b =>
+        b.classList.toggle("active", b.dataset.tab === name));
+    document.querySelectorAll(".tabpane").forEach(p =>
+        p.classList.toggle("active", p.dataset.pane === name));
 }
 
 // ------------------------------------------------------------------
@@ -824,6 +868,20 @@ const GALLERY_LABELS = {
 
 async function initGallery() {
     const host = $("layer-list");
+
+    // file:// mode: fetch() is blocked by the browser — explain instead of
+    // silently showing an empty gallery.
+    if (location.protocol === "file:") {
+        $("env-banner").style.display = "block";
+        const note = document.createElement("div");
+        note.className = "hint";
+        note.textContent =
+            "Examples are unavailable over file:// — serve the folder over http to enable them. " +
+            "Editing and Export work fine.";
+        host.after(note);
+        return;
+    }
+
     const galTitle = document.createElement("h2");
     galTitle.textContent = "Examples — tap to load";
     galTitle.id = "gallery-title";
@@ -904,7 +962,14 @@ document.querySelectorAll("[data-pane='design'] input, [data-pane='design'] sele
     });
 sourceEl.addEventListener("input", onSourceEdit);
 
+$("banner-dismiss")?.addEventListener?.("click", () => {
+    $("env-banner").style.display = "none";
+});
+
 (function init() {
+    if (location.protocol === "file:") {
+        $("env-banner").style.display = "block";
+    }
     boot();
     workingRaw = {
         amo: 1,

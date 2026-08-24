@@ -31,8 +31,7 @@ async function waitFor(expr, timeoutMs = 10000) {
 let failures = 0;
 const fail = m => { failures++; console.log("FAIL:", m); };
 page.on("pageerror", e => fail("PAGEERROR: " + e.message));
-// headless throttles timers heavily; stub prompt for the add-layer test
-await page.evaluateOnNewDocument(() => { window.prompt = () => "particles"; });
+// headless throttles timers heavily
 
 await page.goto(`http://127.0.0.1:${server.address().port}/generator/index.html`, { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise(r => setTimeout(r, 3000));
@@ -96,15 +95,30 @@ await page.goto(`http://127.0.0.1:${server.address().port}/generator/index.html`
 await new Promise(r => setTimeout(r, 3500));
 if (!await page.evaluate(() => !!window.__gplayerRef())) throw new Error("studio did not boot");
 await page.evaluate(() => window.__gplayerRef().pause());
-const scrubHash = async () => {
-    await page.evaluate(() => window.__gplayerRef().scrub(3.5));
-    await new Promise(r => setTimeout(r, 1200));   // renderer rAF settle (throttled)
-    return page.evaluate(() => {
+const captureStable = async () => {
+    // Capture until two consecutive reads agree (rAF may lag under throttle).
+    let prev = await page.evaluate(() => {
         const c = document.getElementById("preview-canvas");
         const s = document.createElement("canvas"); s.width = 32; s.height = 18;
         const x = s.getContext("2d"); x.drawImage(c, 0, 0, 32, 18);
         return [...x.getImageData(0, 0, 32, 18).data].reduce((a, v) => (a * 31 + v) | 0, 7);
     });
+    for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        const cur = await page.evaluate(() => {
+            const c = document.getElementById("preview-canvas");
+            const s = document.createElement("canvas"); s.width = 32; s.height = 18;
+            const x = s.getContext("2d"); x.drawImage(c, 0, 0, 32, 18);
+            return [...x.getImageData(0, 0, 32, 18).data].reduce((a, v) => (a * 31 + v) | 0, 7);
+        });
+        if (cur === prev) return cur;
+        prev = cur;
+    }
+    return prev;
+};
+const scrubHash = async () => {
+    await page.evaluate(() => window.__gplayerRef().scrub(3.5));
+    return captureStable();
 };
 await scrubHash();            // warm-up render
 const h1 = await scrubHash();
@@ -126,11 +140,17 @@ if (!await waitFor(() => window.__gworking()?.scene?.type === "expression"))
 await page.evaluate(() => document.querySelectorAll(".layer-chip")[0]?.click());
 await new Promise(r => setTimeout(r, 300));
 
-// add a layer via stubbed prompt
-await page.evaluate(() => {
-    // wrap existing single scene into composite first by adding from composite
-});
+// add a layer via the type-picker modal onto the loaded single-scene plasma:
+// ensureComposite() should auto-wrap it into a composite.
+const layersBefore = await page.evaluate(
+    () => window.__gworking()?.scene?.layers?.length ?? 0);
 await page.evaluate(() => document.getElementById("btn-add-layer").click());
+if (!await waitFor(() => !!document.getElementById("type-picker"))) fail("type picker did not open");
+await page.evaluate(() => {
+    const btns = [...document.querySelectorAll("#type-picker button")];
+    btns.find(b => b.textContent.includes("particles")).click();
+});
+await waitFor(() => !document.getElementById("type-picker"));
 await new Promise(r => setTimeout(r, 1500));
 const afterAdd = await page.evaluate(() => ({
     type: window.__gworking()?.scene?.type,
