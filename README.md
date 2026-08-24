@@ -96,6 +96,7 @@ player.play(); player.pause(); player.scrub(3.2);
 | `pattern` | Generators: `dots`, `checks`, `stripes`, `scanlines`, `halftone` — size/thickness/angle/offset all animatable |
 | `flow` | Domain-warped fbm noise field mapped through a color palette (the "living background" workhorse) |
 | `particles` | Stateless seeded particle systems: `drift`, `orbit`, `rise`, `fall`, `fireflies`, `snow` |
+| `curve` | Parametric math art — Lissajous, harmonographs, roses, spirographs via `x(p)`/`y(p)` expressions with glow and damping |
 | `expression` | Per-pixel math: `r/g/b` expressions over `x y t u v noise(...)` |
 | `image` / `gif` / `video` | Media sources, rasterized to logical resolution |
 | `composite` | Layer stack with blend modes (`normal/add/multiply/screen/overlay`), opacity, clip rects, scale + **rotation**, offsets |

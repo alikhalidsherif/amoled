@@ -1,0 +1,37 @@
+{
+  "amo": 1,
+  "meta": {
+    "name": "Lissajous",
+    "author": "ali"
+  },
+  "display": {
+    "gamma": 1.4,
+    "spill": 0.35,
+    "bloom": {
+      "intensity": 0.55,
+      "threshold": 0.3,
+      "radius": 16
+    }
+  },
+  "quality": {
+    "logicalResolution": {
+      "width": 320,
+      "height": 320
+    },
+    "fps": 30
+  },
+  "timeline": {
+    "duration": 40,
+    "loop": true
+  },
+  "scene": {
+    "type": "curve",
+    "x": "sin(3*6.28318*p + t*0.4)",
+    "y": "sin(4*6.28318*p)",
+    "samples": 1200,
+    "thickness": 0.012,
+    "glow": 0.85,
+    "color": "#00ffcc",
+    "bg": "#010a08"
+  }
+}

@@ -325,7 +325,24 @@
             this.canvas.addEventListener("webglcontextrestored", this._boundContextRestored, false);
 
             this.renderQueued = false;
-            this._boundResize = this.resize.bind(this);
+            // Resize immediately (keeps first-paint timing intact), then run
+            // ONE trailing convergence pass: window resizes / devtools docking
+            // fire a stream of intermediate sizes during CSS transitions, and
+            // the last RO event can land mid-transition — leaving the canvas
+            // stuck at transitional geometry. The settle pass re-checks the
+            // real container size and resizes again if it drifted.
+            this._boundResize = () => {
+                this.resize();
+                clearTimeout(this._resizeSettle);
+                this._resizeSettle = setTimeout(() => {
+                    const rect = this.container.getBoundingClientRect();
+                    const w = Math.max(1, Math.floor(rect.width));
+                    const h = Math.max(1, Math.floor(rect.height));
+                    if (w !== this.viewportWidth || h !== this.viewportHeight) {
+                        this.resize();
+                    }
+                }, 180);
+            };
             this._resizeObserver = null;
             this._bindResizeListeners();
             this.resize();
@@ -829,6 +846,7 @@
         }
 
         destroy() {
+            clearTimeout(this._resizeSettle);
             if (this._resizeObserver) {
                 this._resizeObserver.disconnect();
                 this._resizeObserver = null;

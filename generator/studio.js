@@ -80,7 +80,7 @@ function highlightError() {
 // Scene type schemas (visual editors)
 // ------------------------------------------------------------------
 const SCENE_TYPES = ["livingGradient", "flow", "particles", "pattern",
-    "expression", "gradient", "color", "image", "gif", "video"];
+    "curve", "expression", "gradient", "color", "image", "gif", "video"];
 
 // kind: eval-num (text input + optional slider), color, select, expr, int
 const TYPE_FIELDS = {
@@ -113,6 +113,16 @@ const TYPE_FIELDS = {
         { key: "bg", label: "Background", kind: "color", def: "#041008" },
         { key: "softness", label: "Edge softness", kind: "eval-num", min: 0, max: 0.5, step: 0.01, def: 0.1 },
         { key: "angle", label: "Angle (rad)", kind: "eval-num", min: -3.14, max: 3.14, step: 0.05, def: 0 }
+    ],
+    curve: [
+        { key: "x", label: "x(p)  — horizontal equation", kind: "expr", def: "sin(3*6.28318*p + t*0.4)" },
+        { key: "y", label: "y(p)  — vertical equation", kind: "expr", def: "sin(4*6.28318*p)" },
+        { key: "samples", label: "Smoothness (samples)", kind: "eval-num", min: 64, max: 3000, step: 50, def: 1000 },
+        { key: "thickness", label: "Line thickness", kind: "eval-num", min: 0.002, max: 0.08, step: 0.002, def: 0.012 },
+        { key: "glow", label: "Glow", kind: "eval-num", min: 0, max: 1, step: 0.05, def: 0.85 },
+        { key: "decay", label: "Decay (harmonograph damping)", kind: "eval-num", min: 0, max: 1.5, step: 0.02, def: 0 },
+        { key: "color", label: "Line color", kind: "color", def: "#00ffcc" },
+        { key: "bg", label: "Background", kind: "color-or-json", def: "#010a08" }
     ],
     expression: [
         { key: "r", label: "Red channel", kind: "expr", def: "0.5 + 0.5*sin(x*8 + t*2)" },
@@ -178,7 +188,7 @@ function syncSourceFromWorking() {
 async function loadToPlayer() {
     if (!player || !workingRaw) return null;
     try {
-        const parsed = parseAmo(JSON.parse(JSON.stringify(workingRaw)));
+        const parsed = parseAmo(JSON.parse(JSON.stringify(workingRaw)), location.href);
         await player.load(parsed.definition);
         if (playing) player.play();
         updateTransport();
@@ -417,6 +427,11 @@ function renderLayerEditor() {
         wrap.appendChild(renderField(f, frag));
     }
 
+    // Cheat-sheet whenever math is involved.
+    if (type === "expression" || type === "curve") {
+        host.appendChild(buildCheatSheet());
+    }
+
     // Transform/blending panel for composite layers.
     if (isComposite()) {
         const th = document.createElement("h2");
@@ -434,6 +449,27 @@ function renderLayerEditor() {
     } else {
         host.appendChild(wrap);
     }
+}
+
+function buildCheatSheet() {
+    const d = document.createElement("details");
+    d.style.cssText = "margin-top:12px;border:1px solid var(--line);border-radius:6px;padding:8px;";
+    d.innerHTML =
+        `<summary style="cursor:pointer;color:#9fd39f">Math cheat-sheet</summary>
+        <div class="hint" style="margin-top:6px">
+        <b>Variables:</b> p = position along the curve (0→1) · x y u v = pixel ·
+        t = seconds · frame · width height · seed · progress<br><br>
+        <b>Recipes</b> (multiply p by 6.28318·f to make f full cycles):<br>
+        • Lissajous: x=sin(3*6.28*p+t), y=sin(4*6.28*p)<br>
+        • Rose (5 petals): x=cos(5*6.28*p)*cos(6.28*p), y=cos(5*6.28*p)*sin(6.28*p)<br>
+        • Circle: x=cos(6.28*p), y=sin(6.28*p)<br>
+        • Damping: wrap in exp(-decay*p), or use the Decay slider<br><br>
+        <b>Functions:</b> sin cos tan abs sqrt pow exp log sign<br>
+        min max floor ceil fract mod clamp mix smoothstep step distance length noise<br><br>
+        For per-pixel fields (plasma, waves) add an <b>expression</b> layer instead —
+        there x and y are pixel coordinates.
+        </div>`;
+    return d;
 }
 
 function offsetField(frag, axis) {
@@ -756,6 +792,7 @@ const TYPE_DESCRIPTIONS = {
     flow: "Drifting organic noise field",
     particles: "Fireflies, snow, orbits…",
     pattern: "Dots, stripes, halftone grids",
+    curve: "Math curves — Lissajous, roses, spirographs",
     expression: "Per-pixel math (advanced)",
     gradient: "Simple 2-color gradient",
     color: "Solid color",
@@ -903,7 +940,7 @@ async function initGallery() {
             try {
                 const res = await fetch(`../scenes/${name}.amo`);
                 workingRaw = JSON.parse(await res.text());
-                parseAmo(workingRaw);
+                parseAmo(workingRaw, location.href);
                 selected = isComposite()
                     ? { kind: "layer", index: workingRaw.scene.layers.length - 1 }
                     : { kind: "scene", index: -1 };
@@ -937,7 +974,7 @@ $("file-import").addEventListener("change", async e => {
     if (!file) return;
     try {
         workingRaw = JSON.parse(await file.text());
-        parseAmo(workingRaw);
+        parseAmo(workingRaw, location.href);
         selected = isComposite()
             ? { kind: "layer", index: workingRaw.scene.layers.length - 1 }
             : { kind: "scene", index: -1 };

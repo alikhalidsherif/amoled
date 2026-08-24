@@ -1,0 +1,36 @@
+{
+  "amo": 1,
+  "meta": {
+    "name": "Rose curve",
+    "author": "ali"
+  },
+  "display": {
+    "gamma": 1.4,
+    "spill": 0.38,
+    "bloom": {
+      "intensity": 0.5,
+      "threshold": 0.3
+    }
+  },
+  "quality": {
+    "logicalResolution": {
+      "width": 320,
+      "height": 320
+    },
+    "fps": 30
+  },
+  "timeline": {
+    "duration": 30,
+    "loop": true
+  },
+  "scene": {
+    "type": "curve",
+    "x": "cos(5*6.28318*p)*cos(6.28318*p - t*0.2)",
+    "y": "cos(5*6.28318*p)*sin(6.28318*p - t*0.2)",
+    "samples": 1500,
+    "thickness": 0.01,
+    "glow": 0.85,
+    "color": "#ff6ec7",
+    "bg": "#0a0208"
+  }
+}

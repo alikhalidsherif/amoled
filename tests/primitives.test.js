@@ -202,6 +202,55 @@ ok("composite of frozen layers stays static", () => {
     assert.strictEqual(def.isStatic, true);
 });
 
+
+
+// ------------------------------------------------------------------
+// Curve primitive (math art)
+// ------------------------------------------------------------------
+
+ok("curve: horizontal stroke lights the center row", () => {
+    const def = build({ type: "curve", x: "-1 + 2*p", y: "0",
+        thickness: 0.06, glow: 0.9, color: "#ffffff" });
+    const b = buf(def, 0, 32, 16);
+    const center = b[(8 * 32 + 16) * 3];
+    const top = b[(1 * 32 + 16) * 3];
+    assert.ok(center > 200, `center ${center}`);
+    assert.ok(top < 40, `top ${top}`);
+});
+
+ok("curve is dynamic when equations use t, static otherwise", () => {
+    const dyn = build({ type: "curve", x: "sin(6.28*p + t)", y: "0" });
+    const stat = build({ type: "curve", x: "cos(6.28*p)", y: "sin(6.28*p)" });
+    assert.strictEqual(dyn.isStatic, false);
+    assert.strictEqual(stat.isStatic, true);
+});
+
+ok("curve determinism across runs and decay shrinks extent", () => {
+    const mk = d => build({ type: "curve", x: "sin(12.56*p)*exp(-d*p*6.28)".replace("d", String(d)),
+        y: "0", thickness: 0.02, color: "#ffffff", decay: d });
+    assert.strictEqual(hash(buf(mk(0.5), 2)), hash(buf(mk(0.5), 2)));
+    const noDecay = buf(mk(0), 0, 48, 24);
+    const withDecay = buf(mk(1.5), 0, 48, 24);
+    // with strong damping the curve collapses toward center -> fewer lit columns
+    const cols = b => {
+        let n = 0;
+        for (let x = 0; x < 48; x++) for (let y = 0; y < 24; y++)
+            if (b[(y * 48 + x) * 3] > 30) { n++; break; }
+        return n;
+    };
+    assert.ok(cols(withDecay) < cols(noDecay), `decayed ${cols(withDecay)} vs ${cols(noDecay)}`);
+});
+
+ok("curve rejects missing/invalid equations", () => {
+    assert.throws(() => build({ type: "curve", x: "sin(p)" }), e => e.path.includes("y"));
+    assert.throws(() => build({ type: "curve", x: "bogus(", y: "0" }), e => e.path.includes("x"));
+});
+
+ok("samples outside 16..4000 rejected", () => {
+    assert.throws(() => build({ type: "curve", x: "p", y: "p", samples: 9000 }),
+        e => e.name === "AmoError");
+});
+
 console.log(`primitives: ${passed} passed, ${failed} failed`);
 if (failed) {
     for (const f of failures) console.log("  FAIL:", f);

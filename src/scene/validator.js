@@ -18,7 +18,7 @@ export class AmoError extends Error {
 
 const KNOWN_TOP_LEVEL = new Set(["amo", "meta", "display", "quality", "assets", "scene", "timeline"]);
 const KNOWN_DISPLAY = new Set(["pitch", "gamma", "brightness", "spill", "emitters", "bloom", "pentile"]);
-const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "flow", "particles", "expression", "composite"]);
+const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "flow", "particles", "curve", "expression", "composite"]);
 const KNOWN_FIT = new Set(["cover", "contain", "stretch"]);
 const KNOWN_DIRECTIONS = new Set(["vertical", "horizontal", "diagonal", "radial"]);
 const KNOWN_EASINGS = new Set(["linear", "smoothstep", "easeIn", "easeOut"]);
@@ -163,6 +163,7 @@ const KNOWN_FIELDS_FOR_TYPE = {
     pattern: ["type", "pattern", "size", "thickness", "fg", "bg", "softness", "angle", "offset", "signal", "seed"],
     flow: ["type", "palette", "scale", "speed", "warp", "octaves", "contrast", "seed"],
     particles: ["type", "count", "behavior", "size", "speed", "color", "glow", "seed"],
+    curve: ["type", "x", "y", "samples", "thickness", "glow", "decay", "color", "bg", "seed"],
     expression: ["type", "r", "g", "b", "seed"],
     composite: ["type", "layers"]
 };
@@ -318,6 +319,26 @@ function normalizeSceneContent(s, path, warnings, assets) {
         } else {
             scene.color = normalizeColor(s.color ?? "#aaffcc", `${path}.color`);
         }
+    } else if (s.type === "curve") {
+        for (const c of ["x", "y"]) {
+            if (typeof s[c] !== "string") fail(`${path}.${c}`, "curve needs string expressions for x and y");
+            try {
+                compileExpression(s[c]);
+            } catch (e) {
+                fail(`${path}.${c}`, `invalid expression: ${e.message}`);
+            }
+            scene[c] = s[c];
+        }
+        scene.samples = Math.round(num(s.samples, `${path}.samples`, 16, 4000, 800, warnings, false));
+        scene.thickness = evalueNum(s.thickness, `${path}.thickness`, 0.001, 0.2, 0.012, warnings);
+        scene.glow = evalueNum(s.glow, `${path}.glow`, 0, 1, 0.6, warnings);
+        scene.decay = evalueNum(s.decay, `${path}.decay`, 0, 2, 0, warnings);
+        const col = normalizeColor(s.color ?? "#00ffcc", `${path}.color`);
+        scene.color = col ?? { r: 0, g: 1, b: 0.8 };
+        if (s.bg !== undefined && s.bg !== null) {
+            scene.bg = normalizeColorE(s.bg, `${path}.bg`, warnings) ?? "#000000";
+        }
+        if (isFiniteNumber(s.seed)) scene.seed = s.seed;
     } else if (s.type === "expression") {
         for (const c of ["r", "g", "b"]) {
             if (typeof s[c] !== "string") fail(`${path}.${c}`, "expression scenes require string expressions for r/g/b");
@@ -516,10 +537,16 @@ export function validateAndNormalize(raw, baseUrl) {
         for (const name of Object.keys(raw.assets)) {
             const url = raw.assets[name];
             if (typeof url !== "string" || !url) fail(`assets.${name}`, "expected non-empty URL string");
-            try {
-                assets[name] = new URL(url, baseUrl || "file:///").href;
-            } catch (e) {
-                fail(`assets.${name}`, `unresolvable URL "${url}"`);
+            if (baseUrl) {
+                try {
+                    assets[name] = new URL(url, baseUrl).href;
+                } catch (e) {
+                    fail(`assets.${name}`, `unresolvable URL "${url}"`);
+                }
+            } else {
+                // No base provided (e.g. tooling re-parse): keep relative URLs
+                // relative instead of inventing a bogus scheme.
+                assets[name] = url;
             }
         }
     }

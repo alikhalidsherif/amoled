@@ -86,7 +86,7 @@ export default class AMOLEDPlayer {
                 }
                 this._currentUrl = source;
             } else {
-                parsed = parseAmo(source); // pre-parsed object (or raw def)
+                parsed = parseAmo(source, location.href); // raw object: resolve relative assets against the page
                 this._currentUrl = null;
             }
 

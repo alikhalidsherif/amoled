@@ -62,7 +62,7 @@ export class AmoExprError extends Error {
 // Parser -> AST
 // ------------------------------------------------------------------
 
-const VARIABLES = new Set(["x", "y", "t", "frame", "width", "height", "u", "v", "seed", "progress"]);
+const VARIABLES = new Set(["x", "y", "t", "frame", "width", "height", "u", "v", "seed", "progress", "p"]);
 
 const FUNCTIONS = {
     sin: Math.sin, cos: Math.cos, tan: Math.tan,

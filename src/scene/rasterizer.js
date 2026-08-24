@@ -347,6 +347,122 @@ function wrap01(v) {
 }
 
 // ------------------------------------------------------------------
+// Parametric curves (PLAN-CREATIVE.md — math art: Lissajous, harmonographs,
+// roses, spirographs). Expressions x(p)/y(p) with p ∈ [0,1] map to screen
+// space (−1..1 scaled by height, aspect-correct); strokes accumulate
+// additively so crossings glow like neon silk.
+// CPU-only (the GLSL backend targets per-pixel expression scenes).
+// ------------------------------------------------------------------
+
+const curveCache = new WeakMap();
+
+function getCurveProgram(scene) {
+    let prog = curveCache.get(scene);
+    if (!prog) {
+        prog = {
+            x: compileExpression(String(scene.x)).eval,
+            y: compileExpression(String(scene.y)).eval,
+            color: scene.color ?? { r: 0, g: 1, b: 0.8 },
+            bg: compileColorSlot(scene.bg ?? "#000000")
+        };
+        curveCache.set(scene, prog);
+    }
+    return prog;
+}
+
+function rasterizeCurve(scene, w, h, t, definition, out) {
+    const prog = getCurveProgram(scene);
+    const env = sceneEnv(definition, t, w, h, scene.seed);
+
+    // Background fill.
+    if (prog.bg.allConst) {
+        writeColor(out,
+            Math.round(prog.bg.r * 255),
+            Math.round(prog.bg.g * 255),
+            Math.round(prog.bg.b * 255));
+    } else {
+        let i = 0;
+        for (let y = 0; y < h; y++) {
+            env.y = y; env.v = h > 1 ? y / (h - 1) : 0;
+            for (let x = 0; x < w; x++) {
+                env.x = x; env.u = w > 1 ? x / (w - 1) : 0;
+                const c = prog.bg.eval(env.x, env.y, env);
+                out[i++] = Math.round(c.r * 255);
+                out[i++] = Math.round(c.g * 255);
+                out[i++] = Math.round(c.b * 255);
+            }
+        }
+    }
+
+    const samples = Math.max(16, scene.samples | 0 || 800);
+    const thickness = typeof scene.thickness === "number" ? scene.thickness : 0.012;
+    const rPx = Math.max(0.6, thickness * h * 0.5);
+    const glow = typeof scene.glow === "number"
+        ? scene.glow
+        : (typeof scene.glow === "string" ? clampf(compileExpression(scene.glow).eval(0, 0, env)) : 0.6);
+    const falloff = 1 + 3 * (1 - glow);
+    const decay = typeof scene.decay === "number" ? scene.decay : 0;
+    const col = prog.color;
+    const colR = col.r * 255, colG = col.g * 255, colB = col.b * 255;
+
+    // Scale by height so circles stay circular on any aspect.
+    const scale = h / 2;
+    const cx = w / 2, cy = h / 2;
+
+    let prevX = null, prevY = null;
+    for (let i = 0; i <= samples; i++) {
+        const p = i / samples;
+        env.p = p;
+        env.u = p;
+        let px = prog.x(0, 0, env);
+        let py = prog.y(0, 0, env);
+        if (!Number.isFinite(px)) px = 0;
+        if (!Number.isFinite(py)) py = 0;
+        if (decay > 0) {
+            const amp = Math.exp(-decay * p * 6.28318);
+            px *= amp; py *= amp;
+        }
+        const sxp = cx + px * scale;
+        const syp = cy - py * scale;   // math y-up
+
+        if (prevX !== null) {
+            splatSegment(out, w, h, prevX, prevY, sxp, syp, rPx, falloff, colR, colG, colB);
+        }
+        prevX = sxp; prevY = syp;
+    }
+    return out;
+}
+
+/** Additive soft stroke between two points. */
+function splatSegment(out, w, h, ax, ay, bx, by, rPx, falloff, cr, cg, cb) {
+    const minX = Math.max(0, Math.floor(Math.min(ax, bx) - rPx));
+    const maxX = Math.min(w - 1, Math.ceil(Math.max(ax, bx) + rPx));
+    const minY = Math.max(0, Math.floor(Math.min(ay, by) - rPx));
+    const maxY = Math.min(h - 1, Math.ceil(Math.max(ay, by) + rPx));
+    if (minX > maxX || minY > maxY) return;
+
+    const dx = bx - ax, dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+
+    for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+            const px = x + 0.5 - ax, py = y + 0.5 - ay;
+            let tt = lenSq > 0 ? (px * dx + py * dy) / lenSq : 0;
+            tt = tt < 0 ? 0 : tt > 1 ? 1 : tt;
+            const qx = ax + dx * tt, qy = ay + dy * tt;
+            const d = Math.hypot(x + 0.5 - qx, y + 0.5 - qy);
+            if (d >= rPx * 2) continue;
+            let k = 1 - d / (rPx * 2);
+            k = Math.pow(k, falloff);
+            const j = (y * w + x) * 3;
+            out[j] += cr * k;
+            out[j + 1] += cg * k;
+            out[j + 2] += cb * k;
+        }
+    }
+}
+
+// ------------------------------------------------------------------
 // Flow field / living noise (PLAN-CREATIVE.md §B2)
 // ------------------------------------------------------------------
 
@@ -626,6 +742,8 @@ export function rasterizeScene(scene, definition, t, size, assets, out) {
             return rasterizeFlow(scene, w, h, t, definition, out);
         case "particles":
             return rasterizeParticles(scene, w, h, t, definition, out);
+        case "curve":
+            return rasterizeCurve(scene, w, h, t, definition, out);
         case "expression":
             return rasterizeExpression(definition || { quality: { fps: 30 } }, scene, w, h, t, out);
         case "image":

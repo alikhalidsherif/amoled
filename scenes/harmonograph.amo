@@ -1,0 +1,61 @@
+{
+  "amo": 1,
+  "meta": {
+    "name": "Harmonograph",
+    "author": "ali"
+  },
+  "display": {
+    "gamma": 1.35,
+    "spill": 0.32,
+    "bloom": {
+      "intensity": 0.5,
+      "threshold": 0.28,
+      "radius": 18
+    }
+  },
+  "quality": {
+    "logicalResolution": {
+      "width": 360,
+      "height": 360
+    },
+    "fps": 30
+  },
+  "timeline": {
+    "duration": 60,
+    "loop": true
+  },
+  "scene": {
+    "type": "composite",
+    "layers": [
+      {
+        "type": "color",
+        "color": "#010204"
+      },
+      {
+        "type": "curve",
+        "x": "exp(-0.5*p)*sin(2.0*6.28318*p) + exp(-0.35*p)*sin(3.0*6.28318*p + 1.57)",
+        "y": "exp(-0.45*p)*sin(2.01*6.28318*p + 0.78) + exp(-0.3*p)*sin(3.02*6.28318*p)",
+        "samples": 2000,
+        "thickness": 0.006,
+        "glow": 0.9,
+        "color": "#9fe8ff",
+        "blend": "add"
+      },
+      {
+        "type": "particles",
+        "behavior": "fireflies",
+        "count": 24,
+        "seed": 8,
+        "color": "#3faaff",
+        "glow": 0.9,
+        "speed": 0.05,
+        "size": {
+          "min": 0.002,
+          "max": 0.006
+        },
+        "opacity": 0.7,
+        "blend": "screen"
+      }
+    ]
+  }
+}
