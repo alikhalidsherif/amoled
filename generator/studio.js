@@ -152,7 +152,12 @@ function attachExprEditor(textarea) {
         errEl.textContent = "";
         textarea.style.borderColor = "";
         const v = textarea.value.trim();
-        if (!v) return;
+        if (!v) {
+            errEl.textContent = "empty — the preview keeps the last valid scene until this has an expression";
+            errEl.classList.add("soft");
+            return;
+        }
+        errEl.classList.remove("soft");
         try {
             compileExpression(v, new Set(Object.keys(workingRaw?.parameters || {})));
         } catch (e) {
@@ -390,18 +395,51 @@ function syncSourceFromWorking() {
 
 async function loadToPlayer() {
     if (!player || !workingRaw) return null;
+    let parsed;
     try {
-        const parsed = parseAmo(JSON.parse(JSON.stringify(workingRaw)), location.href);
+        parsed = parseAmo(JSON.parse(JSON.stringify(workingRaw)), location.href);
+    } catch (e) {
+        // Editing in progress: an invalid scene must feel like a pause, not
+        // a failure. The preview keeps the last valid scene.
+        lastErrorPath = e.path || "";
+        highlightError();
+        const field = describeErrorField(e.path);
+        if (isIncompleteExpression(e)) {
+            setStatus(`still typing — ${field || "expression"} is incomplete; preview holds the last valid scene`, "warn");
+        } else {
+            setStatus(`scene invalid — ${e.message}${field ? `\nfield: ${field}` : ""}\npreview holds the last valid scene`, "err");
+        }
+        return null;
+    }
+    try {
         await player.load(parsed.definition);
         if (playing) player.play();
         updateTransport();
         renderLayers();      // reflect adopted state
+        lastErrorPath = "";
+        highlightError();
         setInspectDefinition(parsed.definition);
         return parsed;
     } catch (e) {
         setStatus("load failed: " + e.message, "err");
         return null;
     }
+}
+
+/** Expression parse errors are "mid-keystroke" by default — the inline
+ *  editor shows the precise reason under the field; the statusbar stays calm. */
+function isIncompleteExpression(err) {
+    return /invalid expression/.test(err.message || "");
+}
+
+/** Map an AmoError path like scene.layers[0].y to a human field label. */
+function describeErrorField(path) {
+    const m = /^scene\.layers\[(\d+)\]\.(\w+)$/.exec(path || "");
+    if (!m) return "";
+    const idx = Number(m[1]);
+    const layer = workingRaw?.scene?.layers?.[idx];
+    const f = (TYPE_FIELDS[layer?.type] || []).find(f => f.key === m[2]);
+    return `${f ? f.label : m[2]} (layer ${idx + 1})`;
 }
 
 function onSourceEdit() {
@@ -426,8 +464,13 @@ function onSourceEdit() {
                 parsed.warnings.length ? "warn" : "ok");
         } catch (e) {
             lastErrorPath = e.path || "";
-            setStatus((e.name === "AmoError" ? "" : (e.stack || "")) + e.message, "err");
             highlightError();
+            const field = describeErrorField(e.path);
+            if (isIncompleteExpression(e)) {
+                setStatus(`still typing — ${field || "expression"} is incomplete; preview holds the last valid scene`, "warn");
+            } else {
+                setStatus(`scene invalid — ${e.message}${field ? `\nfield: ${field}` : ""}\npreview holds the last valid scene`, "err");
+            }
         }
     }, 300);
 }
@@ -803,7 +846,9 @@ function renderField(f, frag) {
                 frag[f.key] = input.value;
                 commitEdits();
             });
-            label.innerHTML = `${f.label} <span class="expr-badge">expression</span>`;
+            label.innerHTML = f.label
+                ? `${f.label} <span class="expr-badge">expression</span>`
+                : `<span class="expr-badge">expression</span>`;
             break;
         }
         case "asset": {
@@ -972,6 +1017,9 @@ function hydrateAll() {
     renderLayers();
     renderLayerEditor();
     renderParams();
+    renderMathSheet();
+    const md = $("math-duration");
+    if (md) md.value = String(workingRaw?.timeline?.duration ?? 8);
 }
 
 // ------------------------------------------------------------------
@@ -1071,6 +1119,7 @@ function switchTab(name) {
         b.classList.toggle("active", b.dataset.tab === name));
     document.querySelectorAll(".tabpane").forEach(p =>
         p.classList.toggle("active", p.dataset.pane === name));
+    if (name === "math") renderMathSheet();
 }
 
 // ------------------------------------------------------------------
@@ -1127,14 +1176,31 @@ $("btn-preset").addEventListener("click", () => {
 // expression. Values may be numbers or expressions of t.
 // ------------------------------------------------------------------
 function renderParams() {
-    const host = $("param-list");
-    host.innerHTML = "";
-    const params = workingRaw?.parameters;
-    if (!params) return;
-    for (const name of Object.keys(params)) {
-        host.appendChild(paramRow(name));
+    // Rendered in both the Layers pane and the Math sheet.
+    for (const hostId of ["param-list", "math-vars"]) {
+        const host = $(hostId);
+        if (!host) continue;
+        host.innerHTML = "";
+        const params = workingRaw?.parameters;
+        if (!params) continue;
+        for (const name of Object.keys(params)) {
+            host.appendChild(paramRow(name));
+        }
     }
 }
+
+function addParameter() {
+    if (!workingRaw) return;
+    if (!workingRaw.parameters) workingRaw.parameters = {};
+    let i = 1;
+    while (workingRaw.parameters[`param${i}`] !== undefined) i++;
+    workingRaw.parameters[`param${i}`] = { value: 0.5, min: 0, max: 1, step: 0.01 };
+    renderParams();
+    commitEdits();
+}
+
+$("btn-add-param").addEventListener("click", addParameter);
+$("btn-add-var").addEventListener("click", addParameter);
 
 function paramRow(name) {
     const params = workingRaw.parameters;
@@ -1216,14 +1282,156 @@ function paramRow(name) {
     return row;
 }
 
-$("btn-add-param").addEventListener("click", () => {
+// ------------------------------------------------------------------
+// Math sheet (§6 pure-Desmos mode): every color field is three
+// equations R/G/B over x, y, t. Fields stack as composite layers.
+// ------------------------------------------------------------------
+const DEFAULT_FIELD = () => ({
+    type: "expression",
+    r: "0.5 + 0.5*sin(x*6 + t*2)",
+    g: "0.5 + 0.5*sin(y*6 - t*1.5)",
+    b: "0.25 + 0.25*sin((x + y)*4 + t)",
+    blend: "add"
+});
+
+/** Expression layers as math cards. `single` = the whole scene. */
+function mathGroups() {
+    if (!workingRaw) return [];
+    const s = workingRaw.scene;
+    if (s?.type === "expression") return [{ frag: s, index: -1, single: true }];
+    if (s?.type === "composite") {
+        return s.layers
+            .map((frag, index) => ({ frag, index }))
+            .filter(g => g.frag.type === "expression");
+    }
+    return null;   // scene is not equation-based
+}
+
+function renderMathSheet() {
+    const host = $("math-sheet");
+    host.innerHTML = "";
     if (!workingRaw) return;
-    if (!workingRaw.parameters) workingRaw.parameters = {};
-    let i = 1;
-    while (workingRaw.parameters[`param${i}`] !== undefined) i++;
-    workingRaw.parameters[`param${i}`] = { value: 0.5, min: 0, max: 1, step: 0.01 };
-    renderParams();
+
+    const groups = mathGroups();
+    if (groups === null) {
+        const empty = document.createElement("div");
+        empty.className = "math-empty";
+        empty.textContent = "This scene isn't equation-based. Use “New math sheet” to start from scratch.";
+        host.appendChild(empty);
+        return;
+    }
+    if (groups.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "math-empty";
+        empty.textContent = "No color fields yet — add one below.";
+        host.appendChild(empty);
+        return;
+    }
+    groups.forEach((g, n) => host.appendChild(mathCard(g, n)));
+}
+
+function mathCard(group, n) {
+    const card = document.createElement("div");
+    card.className = "math-card";
+
+    const head = document.createElement("div");
+    head.className = "math-head";
+    const title = document.createElement("span");
+    title.className = "m-title";
+    title.textContent = group.single ? "color field" : `color field ${n + 1}`;
+    head.appendChild(title);
+
+    if (!group.single) {
+        const blend = document.createElement("select");
+        blend.title = "Blend with the fields below";
+        for (const b of ["add", "normal", "screen", "multiply", "overlay"]) {
+            const opt = document.createElement("option");
+            opt.value = b; opt.textContent = b;
+            blend.appendChild(opt);
+        }
+        blend.value = group.frag.blend || "add";
+        blend.addEventListener("change", () => {
+            group.frag.blend = blend.value;
+            commitEdits();
+        });
+        head.appendChild(blend);
+
+        const del = document.createElement("button");
+        del.className = "secondary";
+        del.textContent = "✕";
+        del.title = "Remove this color field";
+        del.addEventListener("click", () => {
+            const layers = workingRaw.scene.layers;
+            layers.splice(group.index, 1);
+            if (layers.length === 1) {
+                // unwrap back to a single expression scene
+                workingRaw.scene = layers[0];
+            }
+            renderMathSheet();
+            renderLayers();
+            commitEdits();
+        });
+        head.appendChild(del);
+    }
+    card.appendChild(head);
+
+    for (const c of ["r", "g", "b"]) {
+        const row = document.createElement("div");
+        row.className = "ch-row";
+        const badge = document.createElement("span");
+        badge.className = `ch-badge ch-${c}`;
+        badge.textContent = c.toUpperCase();
+        row.appendChild(badge);
+
+        const field = renderField(
+            { key: c, label: "", kind: "expr", def: "0" },
+            group.frag
+        );
+        field.style.marginTop = "0";
+        row.appendChild(field);
+        card.appendChild(row);
+    }
+    return card;
+}
+
+$("btn-add-field").addEventListener("click", () => {
+    if (!workingRaw) return;
+    const groups = mathGroups();
+    if (groups === null) {
+        workingRaw.scene = DEFAULT_FIELD();
+    } else {
+        ensureComposite();
+        workingRaw.scene.layers.push(DEFAULT_FIELD());
+    }
+    renderMathSheet();
+    renderLayers();
     commitEdits();
+});
+
+$("btn-new-math").addEventListener("click", () => {
+    if (!workingRaw) return;
+    workingRaw.scene = DEFAULT_FIELD();
+    if (!workingRaw.timeline) workingRaw.timeline = { duration: 8, loop: true };
+    selected = { kind: "scene", index: -1 };
+    hydrateAll();
+    syncSourceFromWorking();
+    loadToPlayer();
+    switchTab("math");
+});
+
+// Time controls for the math sheet (mirror the Design tab fields).
+$("math-duration").addEventListener("input", () => {
+    if (!workingRaw) return;
+    const dur = num("math-duration", 8);
+    workingRaw.timeline = { ...(workingRaw.timeline || { loop: true }), duration: dur };
+    const d = $("f-duration");
+    if (d) d.value = String(dur);
+    commitEdits();
+});
+$("math-speed").addEventListener("change", e => {
+    if (player) player.setPlaybackRate(parseFloat(e.target.value));
+    const s = $("f-speed");
+    if (s) s.value = e.target.value;
 });
 
 // ------------------------------------------------------------------
@@ -1239,7 +1447,7 @@ function stepFrame(dir) {
     player.pause();
     playing = false;
     $("btn-play").innerHTML = "&#9654;";
-    const fps = player.runtime?.definition?.quality?.fps || 30;
+    const fps = player.runtime?.definitionRef?.quality?.fps || 30;
     player.scrub(Math.max(0, player.getTime() + dir / fps));
 }
 $("btn-step-back").addEventListener("click", () => stepFrame(-1));

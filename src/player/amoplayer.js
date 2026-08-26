@@ -46,7 +46,7 @@ export default class AMOLEDPlayer {
             renderer,
             runtime: this.runtime,
             getRequested: () => {
-                const q = this.runtime.definition ? this.runtime.definition.quality : null;
+                const q = this.runtime.definitionRef ? this.runtime.definitionRef.quality : null;
                 return q ? { logicalWidth: q.logicalWidth, logicalHeight: q.logicalHeight, fps: q.fps, supersample: q.supersample } : null;
             },
             isAnimated: () => this.runtime.isRunning && !this.runtime.isStatic,

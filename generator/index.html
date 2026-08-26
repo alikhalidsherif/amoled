@@ -141,6 +141,7 @@
     .tok-const { color: #e0a06a; }
     .tok-bad { color: var(--err); text-decoration: underline wavy; }
     .expr-err { color: var(--err); font-size: 11px; margin-top: 3px; min-height: 14px; }
+    .expr-err.soft { color: var(--warn); }
 
     .ac-menu {
         position: absolute; z-index: 40; left: 0; right: 0;
@@ -186,6 +187,33 @@
         background: #223522; border-radius: 4px; padding: 1px 6px;
     }
     .layer-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+    /* ---------- math sheet (Desmos mode) ---------- */
+    .math-card {
+        border: 1px solid var(--line); border-radius: 8px;
+        padding: 10px 12px; margin-top: 10px; background: var(--panel-2);
+    }
+    .math-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+    .math-head .m-title {
+        flex: 1; color: var(--dim); font-size: 10px;
+        text-transform: uppercase; letter-spacing: .09em;
+    }
+    .math-head select { width: auto; min-height: 0; padding: 4px 6px; margin-top: 0; }
+    .math-head button { min-height: 0; padding: 4px 9px; }
+    .ch-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; }
+    .ch-row label.field { flex: 1; margin-top: 0; min-width: 0; }
+    .ch-row .expr-wrap { margin-top: 0; }
+    .ch-badge {
+        display: inline-block; width: 24px; text-align: center; font-weight: bold;
+        border-radius: 5px; padding: 8px 0; margin-top: 4px; flex: none;
+    }
+    .ch-r { background: #3a1515; color: #ff8f8f; }
+    .ch-g { background: #123a1a; color: #7fe08a; }
+    .ch-b { background: #151f3a; color: #8f9dff; }
+    .math-empty {
+        border: 1px dashed var(--line); border-radius: 8px;
+        padding: 18px; text-align: center; color: var(--dim); margin-top: 10px;
+    }
 
     /* ---------- status ---------- */
     #statusbar {
@@ -276,6 +304,7 @@
 <div id="right-stack">
     <div id="tabs">
         <button data-tab="layers" class="active">Layers</button>
+        <button data-tab="math">Math</button>
         <button data-tab="design">Design</button>
         <button data-tab="source">Source</button>
     </div>
@@ -315,6 +344,44 @@
             <div id="preset-params"></div>
             <button id="btn-preset">Apply preset</button>
             <div class="hint">Presets expand to plain expressions in the exported file.</div>
+        </div>
+
+        <!-- ================= MATH (Desmos-style sheet) ================= -->
+        <div class="tabpane" data-pane="math">
+            <div class="hint" style="margin-bottom:8px;">
+                Pure math mode — each <b>color field</b> is three equations
+                R(x,y,t), G(x,y,t), B(x,y,t). Stack as many as you like;
+                they blend like layers. Variables below are draggable live.
+            </div>
+            <div id="math-sheet"></div>
+            <div class="layer-actions">
+                <button id="btn-add-field" class="secondary">+ Add color field</button>
+                <button id="btn-new-math" class="secondary">New math sheet</button>
+            </div>
+
+            <h2>Variables</h2>
+            <div class="hint">Use a variable's name in any equation, then drag its
+                slider — the preview updates live. Values may also be expressions of t.</div>
+            <div id="math-vars"></div>
+            <div class="layer-actions">
+                <button id="btn-add-var" class="secondary">+ Add variable</button>
+            </div>
+
+            <h2>Time</h2>
+            <div class="row">
+                <label class="field">Duration (s) <input id="math-duration" type="number" min="0" step="0.5" value="8"></label>
+                <label class="field">Speed
+                    <select id="math-speed">
+                        <option value="0.25">0.25&times;</option>
+                        <option value="0.5">0.5&times;</option>
+                        <option value="1" selected>1&times;</option>
+                        <option value="2">2&times;</option>
+                        <option value="4">4&times;</option>
+                    </select>
+                </label>
+            </div>
+            <div class="hint">t runs over the duration and loops. Scrub with the
+                timeline under the preview; step frame-by-frame with &#8249; &#8250;.</div>
         </div>
 
         <!-- ================= DESIGN ================= -->

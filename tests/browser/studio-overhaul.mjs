@@ -180,6 +180,92 @@ if (!await waitFor(() => document.getElementById("inspector").style.display === 
     if (!/x 0\.\d{3}/.test(txt)) fail(`inspector content unexpected: ${txt}`);
 }
 
+// --- forgiving editing: incomplete expressions hold the preview, not fail ---
+// Load lissajous (curve scene) and clear the y(p) equation via the editor.
+await page.evaluate(async () => {
+    const res = await fetch("../scenes/lissajous.amo");
+    const raw = JSON.parse(await res.text());
+    document.getElementById("source").value = JSON.stringify(raw, null, 2);
+    document.getElementById("source").dispatchEvent(new Event("input"));
+});
+if (!await waitFor(() => window.__gworking()?.scene?.type === "curve")) fail("lissajous did not adopt");
+await page.evaluate(async () => {
+    const res = await fetch("../scenes/three-phase.amo");   // keep a valid scene loaded for hold-check
+    const raw = JSON.parse(await res.text());
+    document.getElementById("source").value = JSON.stringify(raw, null, 2);
+    document.getElementById("source").dispatchEvent(new Event("input"));
+});
+if (!await waitFor(() => window.__gworking()?.scene?.r !== undefined)) fail("three-phase did not adopt");
+
+// Now break it: type an incomplete expression into the r channel.
+await page.evaluate(() => {
+    const ta = document.querySelector(".expr-wrap textarea");
+    ta.value = "0.5 + 0.5*si";
+    ta.dispatchEvent(new Event("input"));
+});
+if (!await waitFor(() => document.getElementById("statusbar").textContent.includes("still typing"))) {
+    fail(`incomplete expression not reported gently: ${await page.evaluate(() => document.getElementById("statusbar").textContent)}`);
+}
+// preview must still hold a valid scene (not torn down)
+const heldType = await page.evaluate(() => window.__gplayerRef().runtime.definitionRef.scene.type);
+if (heldType !== "expression") fail(`preview did not hold last valid scene (${heldType})`);
+
+// finishing the expression recovers automatically
+await page.evaluate(() => {
+    const ta = document.querySelector(".expr-wrap textarea");
+    ta.value = "0.5 + 0.5*sin(omega*tau*t)";
+    ta.dispatchEvent(new Event("input"));
+});
+if (!await waitFor(() => document.getElementById("statusbar").textContent.includes("valid"))) {
+    fail("completing the expression did not recover");
+}
+
+// --- pure math sheet mode (Desmos-style) ---
+await page.evaluate(() => {
+    [...document.querySelectorAll("#tabs button")].find(b => b.dataset.tab === "math").click();
+});
+if (!await waitFor(() => document.querySelectorAll("#math-sheet .math-card").length === 1)) {
+    fail("math sheet did not render a card for the expression scene");
+}
+// edit the G equation through the math sheet
+await page.evaluate(() => {
+    const gRow = document.querySelectorAll("#math-sheet .ch-row")[1];
+    const ta = gRow.querySelector("textarea");
+    ta.value = "0.5 + 0.5*sin(y*4 - t)";
+    ta.dispatchEvent(new Event("input"));
+});
+if (!await waitFor(() => window.__gworking()?.scene?.g === "0.5 + 0.5*sin(y*4 - t)")) {
+    fail("math sheet G equation edit not adopted");
+}
+// add a second color field -> composite of two expression layers
+await page.evaluate(() => document.getElementById("btn-add-field").click());
+if (!await waitFor(() =>
+    window.__gworking()?.scene?.type === "composite" &&
+    window.__gworking().scene.layers.length === 2
+)) fail("add color field failed");
+if (!await waitFor(() => document.querySelectorAll("#math-sheet .math-card").length === 2)) {
+    fail("math sheet did not show the second card");
+}
+// variables: add one, it appears in the math sheet (three-phase already
+// declares omega, so the sheet must show existing + new)
+await page.evaluate(() => document.getElementById("btn-add-var").click());
+if (!await waitFor(() => {
+    const rows = document.querySelectorAll("#math-vars .param-row").length;
+    const params = Object.keys(window.__gworking()?.parameters || {}).length;
+    return rows === params && rows >= 2;
+})) {
+    fail("math-sheet variable rows did not track parameters");
+}
+// duration edits the timeline
+await page.evaluate(() => {
+    const d = document.getElementById("math-duration");
+    d.value = "12";
+    d.dispatchEvent(new Event("input"));
+});
+if (!await waitFor(() => window.__gworking()?.timeline?.duration === 12)) {
+    fail("math duration not adopted into timeline");
+}
+
 await browser.close();
 server.close();
 if (failures) { console.log(`\nSTUDIO-OVERHAUL: ${failures} FAILURES`); process.exit(1); }
