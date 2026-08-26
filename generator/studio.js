@@ -527,6 +527,13 @@ function selectLayer(idx) {
     selected = idx < 0 ? { kind: "scene", index: -1 } : { kind: "layer", index: idx };
     renderLayers();
     renderLayerEditor();
+    // Bring the editor into view so tapping a chip pays off immediately.
+    requestAnimationFrame(() => {
+        const ed = document.getElementById("layer-editor");
+        if (ed && ed.children.length) {
+            ed.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+    });
 }
 
 function ensureComposite() {
@@ -641,8 +648,9 @@ function renderLayerEditor() {
         if (f.when && !f.when(frag)) continue;
         wrap.appendChild(renderField(f, frag));
     }
+    host.appendChild(wrap);
 
-    // Cheat-sheet whenever math is involved.
+    // Cheat-sheet whenever math is involved (after the fields it explains).
     if (["expression", "curve", "shape", "waves", "conicGradient"].includes(type)) {
         host.appendChild(buildCheatSheet());
     }
@@ -651,7 +659,6 @@ function renderLayerEditor() {
     if (isComposite()) {
         const th = document.createElement("h2");
         th.textContent = "Transform & blending";
-        host.appendChild(wrap);
         host.appendChild(th);
         const tw = document.createElement("div");
         for (const f of TRANSFORM_FIELDS) tw.appendChild(renderField(f, frag));
@@ -661,8 +668,6 @@ function renderLayerEditor() {
         offRow.appendChild(offsetField(frag, "y"));
         tw.appendChild(offRow);
         host.appendChild(tw);
-    } else {
-        host.appendChild(wrap);
     }
 }
 
