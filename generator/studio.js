@@ -14,7 +14,7 @@ import { parseAmo } from "../src/scene/parser.js";
 import { applyPreset, listPresets } from "../src/scene/presets.js";
 import {
     compileExpression, AmoExprError,
-    FUNCTION_NAMES, VARIABLE_NAMES, CONSTANT_NAMES
+    FUNCTION_NAMES, VARIABLE_NAMES, CONSTANT_NAMES, isReservedName
 } from "../src/scene/expression.js";
 import { rasterize } from "../src/scene/rasterizer.js";
 import AMOLEDPlayer from "../src/player/amoplayer.js";
@@ -150,6 +150,7 @@ function attachExprEditor(textarea) {
 
     function validate() {
         errEl.textContent = "";
+        errEl.classList.remove("soft");
         textarea.style.borderColor = "";
         const v = textarea.value.trim();
         if (!v) {
@@ -157,15 +158,44 @@ function attachExprEditor(textarea) {
             errEl.classList.add("soft");
             return;
         }
-        errEl.classList.remove("soft");
+        let compiled;
         try {
-            compileExpression(v, new Set(Object.keys(workingRaw?.parameters || {})));
+            compiled = compileExpression(v, new Set(Object.keys(workingRaw?.parameters || {})));
         } catch (e) {
             if (e instanceof AmoExprError || e.name === "AmoExprError") {
                 errEl.textContent = e.message;
                 textarea.style.borderColor = "var(--err)";
             }
-            // non-syntax errors (e.g. arity) also come through as AmoExprError
+            return;
+        }
+        // Range check: expressions output 0..1. Sample the field; if it
+        // clearly lives on a 0..100 scale, offer a one-click conversion.
+        let max = 0;
+        try {
+            for (let ti = 0; ti < 5; ti++) {
+                const E = {
+                    t: ti * 0.9, frame: ti * 27, width: 64, height: 64,
+                    u: 0, v: 0, x: 0, y: 0, seed: 1, progress: ti / 4
+                };
+                for (let pi = 0; pi < 5; pi++) {
+                    E.x = pi * 16; E.y = (pi % 3) * 21;
+                    E.u = E.x / 63; E.v = E.y / 63;
+                    const out = compiled.eval(E.x, E.y, E);
+                    if (Number.isFinite(out) && Math.abs(out) > max) max = Math.abs(out);
+                }
+            }
+        } catch { /* sampling is best-effort */ }
+        if (max > 5) {
+            errEl.classList.add("soft");
+            errEl.innerHTML =
+                "heads-up: equations output <b>0..1</b>, not 0..100 — this saturates to full brightness. " +
+                `<a href="#" class="expr-fix">convert to 0..1</a> (wraps in /100)`;
+            const fix = errEl.querySelector(".expr-fix");
+            fix.addEventListener("click", ev => {
+                ev.preventDefault();
+                textarea.value = `(${textarea.value}) / 100`;
+                textarea.dispatchEvent(new Event("input", { bubbles: false }));
+            });
         }
     }
 
@@ -848,7 +878,7 @@ function renderField(f, frag) {
             });
             label.innerHTML = f.label
                 ? `${f.label} <span class="expr-badge">expression</span>`
-                : `<span class="expr-badge">expression</span>`;
+                : (f.noBadge ? "" : `<span class="expr-badge">expression</span>`);
             break;
         }
         case "asset": {
@@ -1244,6 +1274,48 @@ function paramRow(name) {
     slider.max = String(spec.max ?? 1);
     slider.step = String(spec.step ?? 0.01);
 
+    // Editable bounds (Desmos-style slider ends).
+    const minEl = document.createElement("input");
+    minEl.type = "number"; minEl.step = "any";
+    minEl.className = "pbound";
+    minEl.value = String(spec.min ?? 0);
+    minEl.title = "lower bound";
+    const maxEl = document.createElement("input");
+    maxEl.type = "number"; maxEl.step = "any";
+    maxEl.className = "pbound";
+    maxEl.value = String(spec.max ?? 1);
+    maxEl.title = "upper bound";
+    function applyBounds() {
+        let lo = parseFloat(minEl.value), hi = parseFloat(maxEl.value);
+        if (!Number.isFinite(lo)) lo = 0;
+        if (!Number.isFinite(hi)) hi = 1;
+        if (hi < lo) [lo, hi] = [hi, lo];
+        spec.min = lo; spec.max = hi;
+        minEl.value = String(lo); maxEl.value = String(hi);
+        slider.min = String(lo); slider.max = String(hi);
+        syncSlider();
+        commitEdits();
+    }
+    minEl.addEventListener("change", applyBounds);
+    maxEl.addEventListener("change", applyBounds);
+
+    // Desmos-style play: animate the value between the bounds.
+    const play = document.createElement("button");
+    play.className = "secondary pplay";
+    play.innerHTML = "&#9654;";
+    play.title = `Animate ${name} between its bounds`;
+    play.addEventListener("click", () => {
+        if (sliderAnim.has(name)) {
+            stopSliderAnim(name);
+            play.innerHTML = "&#9654;";
+            play.classList.remove("selected");
+        } else {
+            startSliderAnim(name);
+            play.innerHTML = "&#10074;&#10074;";
+            play.classList.add("selected");
+        }
+    });
+
     function syncSlider() {
         const n = typeof spec.value === "number" ? spec.value : parseFloat(spec.value);
         if (Number.isFinite(n)) {
@@ -1266,35 +1338,146 @@ function paramRow(name) {
     });
     syncSlider();
 
-    // Delete.
+    // Delete (also stops animation).
     const del = document.createElement("button");
     del.className = "secondary pdel";
     del.textContent = "✕";
     del.title = `Delete ${name}`;
     del.addEventListener("click", () => {
+        stopSliderAnim(name);
         delete workingRaw.parameters[name];
         if (Object.keys(workingRaw.parameters).length === 0) delete workingRaw.parameters;
         renderParams();
         commitEdits();
     });
 
-    row.append(nameEl, slider, valEl, del);
+    row.append(nameEl, play, minEl, slider, maxEl, valEl, del);
     return row;
 }
 
 // ------------------------------------------------------------------
-// Math sheet (§6 pure-Desmos mode): every color field is three
-// equations R/G/B over x, y, t. Fields stack as composite layers.
+// Math sheet (default mode): type equations, they render. Each card is
+// one R/G/B trio; extra cards stack additively. Unknown identifiers in
+// an equation automatically become slider variables (Desmos-style).
 // ------------------------------------------------------------------
+
+/**
+ * Desmos behavior: any invented name in an equation becomes a variable.
+ * Scans the parsed AST for identifiers that aren't built-ins and aren't
+ * declared yet, then creates them as 0..1 slider parameters.
+ */
+function adoptUnknownIdentifiers(source) {
+    if (!workingRaw || typeof source !== "string" || !source.trim()) return;
+    let ast;
+    try {
+        ast = compileExpression(source, undefined, true).ast;
+    } catch { return; }   // incomplete input — nothing to adopt yet
+    const found = new Set();
+    (function walk(node) {
+        if (!node || typeof node !== "object") return;
+        if (node.kind === "var" && node.name) found.add(node.name);
+        for (const k of Object.keys(node)) {
+            const v = node[k];
+            if (Array.isArray(v)) v.forEach(walk);
+            else if (v && typeof v === "object") walk(v);
+        }
+    })(ast);
+    if (found.size === 0) return;
+    if (!workingRaw.parameters) workingRaw.parameters = {};
+    let added = false;
+    for (const name of found) {
+        if (workingRaw.parameters[name]) continue;
+        if (isReservedName(name)) continue;   // x, y, t, u, v, sin, pi…
+        workingRaw.parameters[name] = { value: 0.5, min: 0, max: 1, step: 0.01 };
+        added = true;
+    }
+    if (added) {
+        renderParams();
+        // The equation was invalid until now (unknown identifier); reload
+        // so the preview picks it up instead of staying on "still typing".
+        commitEdits();
+    }
+}
+
+// ------------------------------------------------------------------
+// Slider animation (Desmos "play" on a slider): ping-pongs the value
+// between min and max and drives the preview at ~8 fps.
+// ------------------------------------------------------------------
+const sliderAnim = new Map();   // name -> {phase, raf, lastLoad, lastTick}
+
+function animTick(name) {
+    const anim = sliderAnim.get(name);
+    const spec = workingRaw?.parameters?.[name];
+    if (!anim || !spec) { stopSliderAnim(name); return; }
+
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - anim.lastTick) / 1000);
+    anim.lastTick = now;
+    const period = 4;                       // seconds per full sweep
+    anim.phase = (anim.phase + dt / period) % 2;
+    const pos = anim.phase < 1 ? anim.phase : 2 - anim.phase;   // ping-pong
+    const range = (spec.max - spec.min) || 1;
+    spec.value = spec.min + range * pos;
+
+    // Refresh the row widgets in place (both variable hosts).
+    for (const hostId of ["param-list", "math-vars"]) {
+        const row = $(hostId)?.querySelector(`.param-row[data-param-name="${name}"]`);
+        if (!row) continue;
+        const slider = row.querySelector("input[type=range]");
+        const val = row.querySelector(".pval");
+        if (slider) slider.value = String(spec.value);
+        if (val) val.value = String(Math.round(spec.value * 1000) / 1000);
+    }
+
+    // Drive the preview at ~8 fps (parse+load is not free).
+    if (now - anim.lastLoad > 120) {
+        anim.lastLoad = now;
+        loadToPlayer();
+    }
+    anim.raf = requestAnimationFrame(() => animTick(name));
+}
+
+function startSliderAnim(name) {
+    const spec = workingRaw?.parameters?.[name];
+    if (!spec) return;
+    const range = (spec.max - spec.min) || 1;
+    const cur = typeof spec.value === "number" ? spec.value : spec.min;
+    sliderAnim.set(name, {
+        phase: (cur - spec.min) / range * 2,
+        raf: 0,
+        lastLoad: 0,
+        lastTick: performance.now()
+    });
+    animTick(name);
+}
+
+function stopSliderAnim(name) {
+    const anim = sliderAnim.get(name);
+    if (!anim) return;
+    if (anim.raf) cancelAnimationFrame(anim.raf);
+    sliderAnim.delete(name);
+    syncSourceFromWorking();
+    loadToPlayer();
+}
+
+// Default math sheet: three-phase AC — the canonical starting point
+// (R leads G by 120°, G leads B by 120°).
 const DEFAULT_FIELD = () => ({
     type: "expression",
-    r: "0.5 + 0.5*sin(x*6 + t*2)",
-    g: "0.5 + 0.5*sin(y*6 - t*1.5)",
-    b: "0.25 + 0.25*sin((x + y)*4 + t)",
+    r: "0.5 + 0.5*sin(t*2)",
+    g: "0.5 + 0.5*sin(t*2 - tau/3)",
+    b: "0.5 + 0.5*sin(t*2 - 2*tau/3)",
     blend: "add"
 });
 
-/** Expression layers as math cards. `single` = the whole scene. */
+/** Empty trio for "clear sheet" / additional equation groups. */
+const BLANK_FIELD = () => ({
+    type: "expression",
+    r: "0", g: "0", b: "0",
+    blend: "add"
+});
+
+/** Expression layers as math rows. `single` = the whole scene. */
 function mathGroups() {
     if (!workingRaw) return [];
     const s = workingRaw.scene;
@@ -1316,64 +1499,45 @@ function renderMathSheet() {
     if (groups === null) {
         const empty = document.createElement("div");
         empty.className = "math-empty";
-        empty.textContent = "This scene isn't equation-based. Use “New math sheet” to start from scratch.";
+        empty.textContent = "These layers aren't equations. Use “clear sheet” to start from scratch.";
         host.appendChild(empty);
         return;
     }
     if (groups.length === 0) {
         const empty = document.createElement("div");
         empty.className = "math-empty";
-        empty.textContent = "No color fields yet — add one below.";
+        empty.textContent = "Nothing here yet — add equations below.";
         host.appendChild(empty);
         return;
     }
-    groups.forEach((g, n) => host.appendChild(mathCard(g, n)));
+    groups.forEach(g => host.appendChild(mathCard(g)));
 }
 
-function mathCard(group, n) {
+function mathCard(group) {
     const card = document.createElement("div");
     card.className = "math-card";
 
-    const head = document.createElement("div");
-    head.className = "math-head";
-    const title = document.createElement("span");
-    title.className = "m-title";
-    title.textContent = group.single ? "color field" : `color field ${n + 1}`;
-    head.appendChild(title);
-
-    if (!group.single) {
-        const blend = document.createElement("select");
-        blend.title = "Blend with the fields below";
-        for (const b of ["add", "normal", "screen", "multiply", "overlay"]) {
-            const opt = document.createElement("option");
-            opt.value = b; opt.textContent = b;
-            blend.appendChild(opt);
-        }
-        blend.value = group.frag.blend || "add";
-        blend.addEventListener("change", () => {
-            group.frag.blend = blend.value;
-            commitEdits();
-        });
-        head.appendChild(blend);
-
+    // Delete control only when there is more than one trio.
+    const groups = mathGroups();
+    if (!group.single && groups.length > 1) {
+        const head = document.createElement("div");
+        head.className = "math-head";
         const del = document.createElement("button");
         del.className = "secondary";
-        del.textContent = "✕";
-        del.title = "Remove this color field";
+        del.textContent = "✕ remove";
         del.addEventListener("click", () => {
             const layers = workingRaw.scene.layers;
             layers.splice(group.index, 1);
             if (layers.length === 1) {
-                // unwrap back to a single expression scene
-                workingRaw.scene = layers[0];
+                workingRaw.scene = layers[0];   // unwrap single trio
             }
             renderMathSheet();
             renderLayers();
             commitEdits();
         });
         head.appendChild(del);
+        card.appendChild(head);
     }
-    card.appendChild(head);
 
     for (const c of ["r", "g", "b"]) {
         const row = document.createElement("div");
@@ -1384,12 +1548,29 @@ function mathCard(group, n) {
         row.appendChild(badge);
 
         const field = renderField(
-            { key: c, label: "", kind: "expr", def: "0" },
+            { key: c, label: "", kind: "expr", def: "0", noBadge: true },
             group.frag
         );
-        field.style.marginTop = "0";
         row.appendChild(field);
         card.appendChild(row);
+
+        // Desmos behavior: invented names become sliders automatically.
+        // Debounced (250ms — shorter than commitEdits' 350ms) so typing
+        // "amp" doesn't adopt "a" and "am" on the way, AND so the variable
+        // exists before the first auto-commit: no "still typing" transient.
+        const ta = field.querySelector("textarea");
+        let adoptTimer = null;
+        ta.addEventListener("input", () => {
+            clearTimeout(adoptTimer);
+            adoptTimer = setTimeout(() => {
+                const before = Object.keys(workingRaw?.parameters || {}).length;
+                adoptUnknownIdentifiers(ta.value);
+                // Re-run inline validation now that the names exist.
+                if (Object.keys(workingRaw?.parameters || {}).length > before) {
+                    ta.dispatchEvent(new Event("input", { bubbles: false }));
+                }
+            }, 250);
+        });
     }
     return card;
 }
@@ -1401,7 +1582,7 @@ $("btn-add-field").addEventListener("click", () => {
         workingRaw.scene = DEFAULT_FIELD();
     } else {
         ensureComposite();
-        workingRaw.scene.layers.push(DEFAULT_FIELD());
+        workingRaw.scene.layers.push(BLANK_FIELD());
     }
     renderMathSheet();
     renderLayers();
@@ -1410,8 +1591,8 @@ $("btn-add-field").addEventListener("click", () => {
 
 $("btn-new-math").addEventListener("click", () => {
     if (!workingRaw) return;
-    workingRaw.scene = DEFAULT_FIELD();
-    if (!workingRaw.timeline) workingRaw.timeline = { duration: 8, loop: true };
+    workingRaw.scene = BLANK_FIELD();
+    workingRaw.parameters = {};
     selected = { kind: "scene", index: -1 };
     hydrateAll();
     syncSourceFromWorking();
@@ -1624,6 +1805,7 @@ $("banner-dismiss")?.addEventListener?.("click", () => {
         $("env-banner").style.display = "block";
     }
     boot();
+    // Boot straight into a living math sheet: three-phase AC. Type over it.
     workingRaw = {
         amo: 1,
         meta: { name: "my scene", author: "" },
@@ -1633,19 +1815,15 @@ $("banner-dismiss")?.addEventListener?.("click", () => {
             bloom: { intensity: 0.3, threshold: 0.42, radius: 14 }
         },
         quality: { fps: 30 },
-        timeline: { duration: 20, loop: true },
-        scene: { type: "composite", layers: [
-            { type: "flow", palette: ["#010803", "#07230f", "#12471f", "#2f8f4a"],
-              scale: 3, speed: 0.08, warp: 0.6, octaves: 3, seed: 4 },
-            { type: "particles", behavior: "fireflies", count: 60, seed: 99,
-              color: "#c8ffb0", glow: 0.85, speed: 0.15, blend: "add" }
-        ] }
+        timeline: { duration: 8, loop: true },
+        scene: DEFAULT_FIELD()
     };
-    selected = { kind: "layer", index: 1 };
+    selected = { kind: "scene", index: -1 };
     hydrateDesign(workingRaw);
     renderLayers();
     renderLayerEditor();
     renderParams();
+    renderMathSheet();
     syncSourceFromWorking();
     initPresets();
     loadToPlayer().then(() => {

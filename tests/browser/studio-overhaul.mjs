@@ -197,10 +197,12 @@ await page.evaluate(async () => {
 });
 if (!await waitFor(() => window.__gworking()?.scene?.r !== undefined)) fail("three-phase did not adopt");
 
-// Now break it: type an incomplete expression into the r channel.
+// Now break it: type an incomplete expression into the r channel
+// (unparseable — unknown identifiers would be auto-adopted as variables,
+// which is Desmos behavior, not an error).
 await page.evaluate(() => {
     const ta = document.querySelector(".expr-wrap textarea");
-    ta.value = "0.5 + 0.5*si";
+    ta.value = "0.5 + 0.5*sin(";
     ta.dispatchEvent(new Event("input"));
 });
 if (!await waitFor(() => document.getElementById("statusbar").textContent.includes("still typing"))) {
@@ -265,6 +267,40 @@ await page.evaluate(() => {
 if (!await waitFor(() => window.__gworking()?.timeline?.duration === 12)) {
     fail("math duration not adopted into timeline");
 }
+
+// --- Desmos behaviors: auto-variables + slider animation ---
+// Typing an invented name adopts it as a slider variable (after debounce).
+await page.evaluate(() => {
+    const ta = document.querySelector("#math-sheet .ch-row textarea");
+    ta.value = "amp + 0.5*sin(t*3)";
+    ta.dispatchEvent(new Event("input"));
+});
+if (!await waitFor(() => window.__gworking()?.parameters?.amp !== undefined, 4000)) {
+    fail("auto-variable 'amp' was not adopted");
+}
+if (!await waitFor(() => [...document.querySelectorAll("#math-vars .param-row")]
+    .some(r => r.dataset.paramName === "amp"))) {
+    fail("adopted variable row missing from math sheet");
+}
+// play button animates the value; stop restores a static value
+const v0 = await page.evaluate(() => window.__gworking().parameters.amp.value);
+await page.evaluate(() => {
+    [...document.querySelectorAll("#math-vars .param-row")]
+        .find(r => r.dataset.paramName === "amp")
+        .querySelector(".pplay").click();
+});
+await new Promise(r => setTimeout(r, 900));
+const v1 = await page.evaluate(() => window.__gworking().parameters.amp.value);
+if (Math.abs(v1 - v0) < 0.01) fail(`slider animation did not move value (${v0} -> ${v1})`);
+await page.evaluate(() => {
+    [...document.querySelectorAll("#math-vars .param-row")]
+        .find(r => r.dataset.paramName === "amp")
+        .querySelector(".pplay").click();
+});
+const still = await page.evaluate(() => window.__gworking().parameters.amp.value);
+await new Promise(r => setTimeout(r, 400));
+const after = await page.evaluate(() => window.__gworking().parameters.amp.value);
+if (Math.abs(still - after) > 1e-9) fail("animation did not stop");
 
 await browser.close();
 server.close();

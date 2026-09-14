@@ -36,16 +36,30 @@ page.on("pageerror", e => fail("PAGEERROR: " + e.message));
 await page.goto(`http://127.0.0.1:${server.address().port}/generator/index.html`, { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise(r => setTimeout(r, 3000));
 
-// boot + default composite
+// boot: math-first with a default expression sheet
 const boot = await page.evaluate(() => ({
     player: !!window.__gplayerRef(),
-    type: window.__gworking()?.scene?.type,
-    chips: document.querySelectorAll(".layer-chip").length
+    type: window.__gworking()?.scene?.type
 }));
 console.log("boot:", JSON.stringify(boot));
 if (!boot.player) fail("player missing");
-if (boot.type !== "composite") fail(`default scene ${boot.type}`);
-if (boot.chips !== 2) fail(`expected 2 layer chips, got ${boot.chips}`);
+if (boot.type !== "expression") fail(`default scene ${boot.type}`);
+
+// load a composite through the source pane to exercise the layers flow
+await page.evaluate(() => {
+    document.getElementById("source").value = JSON.stringify({
+        amo: 1, meta: { name: "layer demo" },
+        scene: { type: "composite", layers: [
+            { type: "flow", palette: ["#010803", "#07230f", "#12471f", "#2f8f4a"],
+              scale: 3, speed: 0.08, warp: 0.6, octaves: 3, seed: 4 },
+            { type: "color", color: "#101010" }
+        ] }
+    }, null, 2);
+    document.getElementById("source").dispatchEvent(new Event("input"));
+});
+if (!await waitFor(() => window.__gworking()?.scene?.type === "composite")) fail("composite did not adopt");
+const chips = await page.evaluate(() => document.querySelectorAll(".layer-chip").length);
+if (chips !== 2) fail(`expected 2 layer chips, got ${chips}`);
 
 // select base layer -> editor shows flow fields with slider companions
 await page.evaluate(() => document.querySelectorAll(".layer-chip")[0].click());

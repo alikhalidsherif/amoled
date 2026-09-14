@@ -142,6 +142,8 @@
     .tok-bad { color: var(--err); text-decoration: underline wavy; }
     .expr-err { color: var(--err); font-size: 11px; margin-top: 3px; min-height: 14px; }
     .expr-err.soft { color: var(--warn); }
+    .expr-err b { color: inherit; }
+    .expr-fix { color: var(--accent); text-decoration: underline; cursor: pointer; }
 
     .ac-menu {
         position: absolute; z-index: 40; left: 0; right: 0;
@@ -153,11 +155,13 @@
     .ac-item .ac-meta { color: var(--faint); font-size: 10px; margin-left: 8px; }
 
     /* ---------- parameter rows ---------- */
-    .param-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
-    .param-row input[type="text"] { width: 120px; flex: none; margin-top: 0; }
-    .param-row input[type="range"] { flex: 1; margin-top: 0; min-height: 0; }
-    .param-row .pval { width: 76px; flex: none; text-align: right; margin-top: 0; }
+    .param-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+    .param-row input[type="text"] { width: 110px; flex: none; margin-top: 0; }
+    .param-row input[type="range"] { flex: 1; min-width: 90px; margin-top: 0; }
+    .param-row .pval { width: 70px; flex: none; text-align: right; margin-top: 0; }
+    .param-row .pbound { width: 58px; flex: none; padding: 6px 4px; font-size: 11px; margin-top: 0; }
     .param-row .pdel { flex: none; width: 40px; padding: 6px 0; }
+    .param-row .pplay { flex: none; min-height: 0; padding: 6px 9px; }
 
     /* ---------- pixel inspector ---------- */
     #inspector {
@@ -303,15 +307,15 @@
 
 <div id="right-stack">
     <div id="tabs">
-        <button data-tab="layers" class="active">Layers</button>
-        <button data-tab="math">Math</button>
+        <button data-tab="math" class="active">Math</button>
+        <button data-tab="layers">Layers</button>
         <button data-tab="design">Design</button>
         <button data-tab="source">Source</button>
     </div>
 
     <div id="tab-content">
         <!-- ================= LAYERS ================= -->
-        <div class="tabpane active" data-pane="layers">
+        <div class="tabpane" data-pane="layers">
             <div class="hint" id="layers-intro" style="margin-bottom:8px;">
                 Layers stack bottom → top, like transparent sheets.
                 Tap a layer to edit it; combine types with blend modes
@@ -346,25 +350,27 @@
             <div class="hint">Presets expand to plain expressions in the exported file.</div>
         </div>
 
-        <!-- ================= MATH (Desmos-style sheet) ================= -->
-        <div class="tabpane" data-pane="math">
+        <!-- ================= MATH (default — just type equations) ================= -->
+        <div class="tabpane active" data-pane="math">
             <div class="hint" style="margin-bottom:8px;">
-                Pure math mode — each <b>color field</b> is three equations
-                R(x,y,t), G(x,y,t), B(x,y,t). Stack as many as you like;
-                they blend like layers. Variables below are draggable live.
+                Type equations, watch the screen. Each row is one channel —
+                <b style="color:#ff8f8f">R</b> <b style="color:#7fe08a">G</b>
+                <b style="color:#8f9dff">B</b> — over position
+                (<code>u</code> left→right, <code>v</code> top→bottom, both 0..1)
+                and time <code>t</code> in seconds. Output is 0..1
+                (<code>0.5 + 0.5*sin(t)</code> pulses black→full).
+                Any name you invent (like <code>amp</code>) becomes a slider below.
             </div>
             <div id="math-sheet"></div>
             <div class="layer-actions">
-                <button id="btn-add-field" class="secondary">+ Add color field</button>
-                <button id="btn-new-math" class="secondary">New math sheet</button>
+                <button id="btn-add-field" class="secondary">+ add equations</button>
+                <button id="btn-new-math" class="secondary">clear sheet</button>
             </div>
 
             <h2>Variables</h2>
-            <div class="hint">Use a variable's name in any equation, then drag its
-                slider — the preview updates live. Values may also be expressions of t.</div>
             <div id="math-vars"></div>
             <div class="layer-actions">
-                <button id="btn-add-var" class="secondary">+ Add variable</button>
+                <button id="btn-add-var" class="secondary">+ add variable</button>
             </div>
 
             <h2>Time</h2>
@@ -380,8 +386,8 @@
                     </select>
                 </label>
             </div>
-            <div class="hint">t runs over the duration and loops. Scrub with the
-                timeline under the preview; step frame-by-frame with &#8249; &#8250;.</div>
+            <div class="hint">t loops over the duration. Scrub with the timeline
+                under the preview; step frame-by-frame with &#8249; &#8250;.</div>
         </div>
 
         <!-- ================= DESIGN ================= -->
