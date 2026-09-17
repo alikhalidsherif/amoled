@@ -222,9 +222,10 @@ if (!await waitFor(() => document.getElementById("statusbar").textContent.includ
     fail("completing the expression did not recover");
 }
 
-// --- pure math sheet mode (Desmos-style) ---
+// --- pure math sheet mode (Desmos-style) — now an Advanced pane ---
 await page.evaluate(() => {
-    [...document.querySelectorAll("#tabs button")].find(b => b.dataset.tab === "math").click();
+    [...document.querySelectorAll("#tabs button")].find(b => b.dataset.tab === "advanced").click();
+    [...document.querySelectorAll("#adv-strip button")].find(b => b.dataset.atab === "math").click();
 });
 if (!await waitFor(() => document.querySelectorAll("#math-sheet .math-card").length === 1)) {
     fail("math sheet did not render a card for the expression scene");

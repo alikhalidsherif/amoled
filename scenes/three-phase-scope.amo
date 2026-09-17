@@ -1,9 +1,9 @@
 {
   "amo": 1,
   "meta": {
-    "name": "three-phase oscilloscope",
+    "name": "three-phase scope",
     "author": "ali",
-    "description": "The three-phase signals drawn as R/G/B scope traces scrolling left to right. Phase knob shifts all traces together; amplitude scales deflection."
+    "description": "The canonical signal-lab example: three sinusoidal traces (R/G/B) 120 degrees apart, sweeping left to right. G lags R by 120 degrees, B lags G by 120 degrees."
   },
   "display": {
     "gamma": 1.5,
@@ -11,43 +11,27 @@
     "bloom": { "intensity": 0.6, "threshold": 0.25, "radius": 18 }
   },
   "quality": { "logicalResolution": { "width": 320, "height": 180 }, "fps": 30 },
-  "timeline": { "duration": 10, "loop": true },
+  "timeline": { "duration": 8, "loop": true },
   "parameters": {
-    "cycles": { "value": 2, "min": 0.25, "max": 8, "step": 0.25 },
-    "amplitude": { "value": 0.35, "min": 0.05, "max": 0.45, "step": 0.01 },
-    "phase": { "value": 0, "min": 0, "max": 6.28318, "step": 0.01 }
+    "f": { "value": 2, "min": 0.25, "max": 8, "step": 0.25 },
+    "amp": { "value": 0.35, "min": 0.05, "max": 0.45, "step": 0.01 },
+    "s": { "value": 4, "min": 0, "max": 16, "step": 0.1 }
   },
   "scene": {
-    "type": "composite",
-    "layers": [
-      { "type": "color", "color": "#000000" },
-      {
-        "type": "curve",
-        "x": "-1 + 2*p",
-        "y": "amplitude*sin(tau*cycles*p - t*4)",
-        "samples": 900,
-        "thickness": 0.008,
-        "glow": 0.85,
-        "color": "#ff3040"
-      },
-      {
-        "type": "curve",
-        "x": "-1 + 2*p",
-        "y": "amplitude*sin(tau*cycles*p - t*4 - tau/3 + phase)",
-        "samples": 900,
-        "thickness": 0.008,
-        "glow": 0.85,
-        "color": "#2fff60"
-      },
-      {
-        "type": "curve",
-        "x": "-1 + 2*p",
-        "y": "amplitude*sin(tau*cycles*p - t*4 - 2*tau/3 + phase)",
-        "samples": 900,
-        "thickness": 0.008,
-        "glow": 0.85,
-        "color": "#3060ff"
-      }
+    "type": "scope",
+    "rows": [
+      { "type": "trace", "name": "R", "waveform": "sine", "color": "#ff0000",
+        "channel": "r",
+        "amplitude": 0.35, "frequency": 2, "phaseOffset": 0,
+        "offset": 0.5, "sweepSpeed": 4, "thickness": 0.02, "enabled": true },
+      { "type": "trace", "name": "G", "waveform": "sine", "color": "#00ff00",
+        "channel": "g",
+        "amplitude": 0.35, "frequency": 2, "phaseOffset": -2.0944,
+        "offset": 0.5, "sweepSpeed": 4, "thickness": 0.02, "enabled": true },
+      { "type": "trace", "name": "B", "waveform": "sine", "color": "#0000ff",
+        "channel": "b",
+        "amplitude": 0.35, "frequency": 2, "phaseOffset": -4.1888,
+        "offset": 0.5, "sweepSpeed": 4, "thickness": 0.02, "enabled": true }
     ]
   }
 }

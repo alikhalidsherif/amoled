@@ -471,6 +471,161 @@ function splatSegment(out, w, h, ax, ay, bx, by, rPx, falloff, cr, cg, cb) {
 }
 
 // ------------------------------------------------------------------
+// Scope / traces (signal-lab-spec.md §4/§5) — first-class waveform rows.
+//
+// Signal pipeline (ONE deterministic pipeline; renderer owns mapping):
+//   p   = 2*pi*frequency*x - sweepSpeed*t + phaseOffset   (signal space)
+//   sig = waveform(p)        custom: user expression (shape only)
+//   V   = amplitude * sig
+//   y   = offset - V * verticalScale                      (pixel space)
+// Horizontal motion = sweepSpeed/(2*pi*frequency) screen-widths/s.
+// Custom expressions receive x, t, p, frequency, sweepSpeed, phaseOffset,
+// and user parameters — NEVER amplitude/offset/y/v (no double application;
+// sin(p) reproduces the built-in sine exactly).
+//
+// Stroke machinery: traces splat vertical line segments through the SAME
+// additive falloff kernel as curve scenes (splatSegment above), sampled per
+// pixel column of the sweep axis. Differences from curve (documented, not
+// forced): x is the pixel column (no samples interpolation), y comes from
+// the signal pipeline, color compositing is additive with channel binding.
+// ------------------------------------------------------------------
+
+const SCOPE_TAU = Math.PI * 2;
+
+function scopeWaveform(name, exprSrc, paramNames) {
+    switch (name) {
+        case "square":
+            return p => (mod2pi(p) < Math.PI ? 1 : -1);
+        case "triangle":
+            // (2/pi)*asin(sin(p)): triangle in quadrature with sine —
+            // zero at p=0, peaks at p=pi/2, so switching waveform types
+            // preserves where peaks land on screen.
+            return p => (2 / Math.PI) * Math.asin(Math.sin(p));
+        case "sawtooth":
+            return p => {
+                const u = (p / SCOPE_TAU) % 1;
+                return 2 * (u < 0 ? u + 1 : u) - 1;
+            };
+        case "custom": {
+            // Signal-space env: x/t/p + knob values + parameters. No y/v.
+            const prog = compileRuntimeExpr(exprSrc);
+            return (p, x, env) => {
+                env.p = p;
+                env.x = x;
+                env.u = x;
+                const v = prog(x, 0, env);   // y positional arg stays 0
+                return typeof v === "number" && Number.isFinite(v) ? v : 0;
+            };
+        }
+        default: // sine
+            return p => Math.sin(p);
+    }
+}
+
+function mod2pi(p) {
+    const m = p % SCOPE_TAU;
+    return m < 0 ? m + SCOPE_TAU : m;
+}
+
+function rasterizeScope(scene, w, h, t, definition, out) {
+    out.fill(0);
+    const rows = scene.rows || [];
+    const env = sceneEnv(definition, t, w, h, scene.seed);
+
+    // Resolve trace slot values once per frame (E-values may animate them).
+    const resolveRow = (row, key, fb) => resolveNamed(row, key, fb, env);
+    const verticalScale = Math.max(0.05, resolveRow(scene, "verticalScale", 1));
+
+    for (const row of rows) {
+        if (row.type !== "trace" || row.enabled === false) {
+            if (row.type !== "trace") {
+                // Ordinary content row (e.g. background color/field): render
+                // into the same buffer in row order, under later rows.
+                const scratch = scopeScratch(w, h);
+                rasterizeScene(row, definition, t, { width: w, height: h }, null, scratch);
+                blendRowMax(out, scratch);
+            }
+            continue;
+        }
+
+        const amplitude = Math.max(0, resolveRow(row, "amplitude", 0.35));
+        const frequency = Math.max(0, resolveRow(row, "frequency", 2));
+        const phaseOffset = resolveRow(row, "phaseOffset", 0);
+        const baseOffset = resolveRow(row, "offset", 0.5);
+        const sweepSpeed = resolveRow(row, "sweepSpeed", 4);
+        const thickness = Math.max(0.001, resolveRow(row, "thickness", 0.02));
+
+        const wf = scopeWaveform(row.waveform, row.expression);
+        const col = row.color;
+        const colR = col.r * 255, colG = col.g * 255, colB = col.b * 255;
+
+        // Expose the trace's own knob values to custom expressions (read-only
+        // signal-space inputs). Knobs win over same-named user parameters —
+        // they are this trace's identity.
+        env.frequency = frequency;
+        env.sweepSpeed = sweepSpeed;
+        env.phaseOffset = phaseOffset;
+
+        // Channel binding: the trace drives only its channel (PenTile lights
+        // that emitter column). Unbound traces use their full color.
+        const chR = row.channel === "g" || row.channel === "b" ? 0 : colR;
+        const chG = row.channel === "r" || row.channel === "b" ? 0 : colG;
+        const chB = row.channel === "r" || row.channel === "g" ? 0 : colB;
+
+        const rPx = Math.max(0.6, thickness * h * 0.5);
+        const falloff = 1.6;   // soft trace profile (slightly tighter than curve default)
+
+        for (let px = 0; px < w; px++) {
+            const x = w > 1 ? px / (w - 1) : 0;
+            env.x = x;
+            env.u = x;
+            const p = SCOPE_TAU * frequency * x - sweepSpeed * t + phaseOffset;
+            const sig = wf(p, x, env);
+            const V = amplitude * sig;
+            // Signal space -> pixel space (renderer-owned mapping).
+            const yScreen = baseOffset - V * verticalScale;
+            const syp = yScreen * h;
+            splatVLine(out, w, h, px, syp, rPx, falloff, chR, chG, chB);
+        }
+    }
+    return out;
+}
+
+// Scratch buffer shared across scope field rows (single-threaded rasterizer).
+let scopeScratchBuf = null;
+function scopeScratch(w, h) {
+    const n = w * h * 3;
+    if (!scopeScratchBuf || scopeScratchBuf.length !== n) scopeScratchBuf = new Uint8ClampedArray(n);
+    scopeScratchBuf.fill(0);
+    return scopeScratchBuf;
+}
+
+/** Field rows composite over what's below with plain max blending (a soft
+ *  "background under traces" semantic: traces are additive, fields replace). */
+function blendRowMax(out, src) {
+    for (let i = 0; i < out.length; i++) {
+        const s = src[i];
+        if (s > out[i]) out[i] = s;
+    }
+}
+
+/** Additive soft vertical stroke at column px centered on yPix. */
+function splatVLine(out, w, h, px, yPix, rPx, falloff, cr, cg, cb) {
+    const minY = Math.max(0, Math.floor(yPix - rPx * 2));
+    const maxY = Math.min(h - 1, Math.ceil(yPix + rPx * 2));
+    for (let y = minY; y <= maxY; y++) {
+        const d = Math.abs(y + 0.5 - yPix);
+        if (d >= rPx * 2) continue;
+        let k = 1 - d / (rPx * 2);
+        k = Math.pow(k, falloff);
+        const i = (y * w + px) * 3;
+        out[i] += cr * k;
+        out[i + 1] += cg * k;
+        out[i + 2] += cb * k;
+    }
+}
+
+// ------------------------------------------------------------------
 // Flow field / living noise (PLAN-CREATIVE.md §B2)
 // ------------------------------------------------------------------
 
@@ -940,6 +1095,8 @@ export function rasterizeScene(scene, definition, t, size, assets, out) {
             return rasterizeParticles(scene, w, h, t, definition, out);
         case "curve":
             return rasterizeCurve(scene, w, h, t, definition, out);
+        case "scope":
+            return rasterizeScope(scene, w, h, t, definition, out);
         case "expression":
             return rasterizeExpression(definition || { quality: { fps: 30 } }, scene, w, h, t, out);
         case "shape":

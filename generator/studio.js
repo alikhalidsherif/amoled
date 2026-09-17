@@ -90,10 +90,14 @@ function highlightError() {
 const BASE_VAR_SET = new Set(VARIABLE_NAMES);
 const CONST_SET = new Set(CONSTANT_NAMES);
 
-function exprVocabulary() {
+function exprVocabulary(signal = false) {
     const params = Object.keys(workingRaw?.parameters || {});
+    // Signal-space editors never offer pixel-space variables (y/v).
+    const vars = signal
+        ? VARIABLE_NAMES.filter(n => !/[uv]/.test(n)).concat(["p", "frequency", "sweepSpeed", "phaseOffset"])
+        : [...VARIABLE_NAMES];
     return [
-        ...VARIABLE_NAMES.map(n => ({ name: n, meta: "variable", cls: "tok-var" })),
+        ...vars.map(n => ({ name: n, meta: "variable", cls: "tok-var" })),
         ...CONSTANT_NAMES.map(n => ({ name: n, meta: "constant", cls: "tok-const" })),
         ...params.map(n => ({ name: n, meta: "parameter", cls: "tok-param" })),
         ...FUNCTION_NAMES.map(n => ({ name: n, meta: "function", cls: "tok-fn" }))
@@ -102,7 +106,7 @@ function exprVocabulary() {
 
 const HL_TOKEN_RE = /(\d+\.?\d*(?:[eE][+-]?\d+)?)|([A-Za-z_][A-Za-z0-9_]*)|([-+*/%^<>?:(),])|(\s+)|(.)/g;
 
-function highlightExpr(src) {
+function highlightExpr(src, extraVars) {
     let out = "";
     let m;
     HL_TOKEN_RE.lastIndex = 0;
@@ -113,7 +117,7 @@ function highlightExpr(src) {
             const isCall = src[HL_TOKEN_RE.lastIndex] === "(";
             let cls = "tok-bad";
             if (isCall && FUNCTION_NAMES.includes(word)) cls = "tok-fn";
-            else if (BASE_VAR_SET.has(word)) cls = "tok-var";
+            else if (BASE_VAR_SET.has(word) || extraVars?.has(word)) cls = "tok-var";
             else if (CONST_SET.has(word)) cls = "tok-const";
             else if ((workingRaw?.parameters || {})[word] !== undefined) cls = "tok-param";
             out += `<span class="${cls}">${escapeHtml(word)}</span>`;
@@ -128,8 +132,12 @@ function highlightExpr(src) {
  * Upgrade a textarea into an expression editor. Returns nothing; mutates
  * the DOM around it. Live-validates with the real compiler so error
  * messages match playback exactly.
+ *
+ * opts.signal — trace custom-expression mode: the vocabulary is signal-space
+ * (p, frequency, sweepSpeed, phaseOffset; no y/v) and the range hint expects
+ * a normalized signal, not 0..1 brightness.
  */
-function attachExprEditor(textarea) {
+function attachExprEditor(textarea, opts = {}) {
     // Highlight layer under a transparent-text textarea.
     const wrap = document.createElement("div");
     wrap.className = "expr-wrap";
@@ -143,8 +151,11 @@ function attachExprEditor(textarea) {
     errEl.className = "expr-err";
     wrap.after(errEl);
 
+    const signalMode = !!opts.signal;
+    const signalVarSet = signalMode ? TRACE_SIGNAL_VARS : null;
+
     function refreshHighlight() {
-        hl.innerHTML = highlightExpr(textarea.value) + "\n";
+        hl.innerHTML = highlightExpr(textarea.value, signalVarSet) + "\n";
         hl.scrollTop = textarea.scrollTop;
     }
 
@@ -160,11 +171,43 @@ function attachExprEditor(textarea) {
         }
         let compiled;
         try {
-            compiled = compileExpression(v, new Set(Object.keys(workingRaw?.parameters || {})));
+            const extra = signalMode
+                ? new Set([...Object.keys(workingRaw?.parameters || {}), ...TRACE_SIGNAL_VARS])
+                : new Set(Object.keys(workingRaw?.parameters || {}));
+            compiled = compileExpression(v, extra);
         } catch (e) {
             if (e instanceof AmoExprError || e.name === "AmoExprError") {
                 errEl.textContent = e.message;
                 textarea.style.borderColor = "var(--err)";
+            }
+            return;
+        }
+        if (signalMode) {
+            // Signal values are ±1-ish, not 0..1 brightness — but a result
+            // that never leaves a tiny band usually means a missing offset.
+            let smax = 0;
+            try {
+                for (let ti = 0; ti < 5; ti++) {
+                    const E = {
+                        t: ti * 0.9, frame: ti * 27, width: 64, height: 64,
+                        u: 0, v: 0, x: 0, y: 0, seed: 1, progress: ti / 4,
+                        p: ti * 1.3, frequency: 2, sweepSpeed: 4, phaseOffset: 0
+                    };
+                    const out = compiled.eval(E.x, E.y, E);
+                    if (Number.isFinite(out) && Math.abs(out) > smax) smax = Math.abs(out);
+                }
+            } catch { /* sampling is best-effort */ }
+            if (smax > 0.001 && smax < 0.05) {
+                errEl.classList.add("soft");
+                errEl.innerHTML =
+                    "heads-up: this signal is nearly flat — did you mean " +
+                    `<a href="#" class="expr-fix">sin(p)</a> (the built-in sine shape)?`;
+                const fix = errEl.querySelector(".expr-fix");
+                if (fix) fix.addEventListener("click", ev => {
+                    ev.preventDefault();
+                    textarea.value = "sin(p)";
+                    textarea.dispatchEvent(new Event("input", { bubbles: false }));
+                });
             }
             return;
         }
@@ -219,7 +262,7 @@ function attachExprEditor(textarea) {
         const cw = currentWord();
         if (!cw || cw.word.length < 1) { closeAc(); return; }
         const lower = cw.word.toLowerCase();
-        acItems = exprVocabulary()
+        acItems = exprVocabulary(signalMode)
             .filter(v => v.name.toLowerCase().startsWith(lower) && v.name !== cw.word)
             .slice(0, 12);
         if (acItems.length === 0) { closeAc(); return; }
@@ -446,6 +489,7 @@ async function loadToPlayer() {
         if (playing) player.play();
         updateTransport();
         renderLayers();      // reflect adopted state
+        renderTraceWorkspace();   // fresh trace rows adopt the primary UI
         lastErrorPath = "";
         highlightError();
         setInspectDefinition(parsed.definition);
@@ -556,6 +600,8 @@ function renderLayers() {
     const host = $("layer-list");
     host.innerHTML = "";
     if (!workingRaw) return;
+    // Scope scenes are edited in the Traces workspace, not as layer chips.
+    if (isTraceScene()) { highlightError(); return; }
 
     const frags = isComposite()
         ? workingRaw.scene.layers.map((l, i) => ({ frag: l, i }))
@@ -1047,7 +1093,7 @@ function hydrateAll() {
     renderLayers();
     renderLayerEditor();
     renderParams();
-    renderMathSheet();
+    renderTraceWorkspace(true);   // scene identity may have changed wholesale
     const md = $("math-duration");
     if (md) md.value = String(workingRaw?.timeline?.duration ?? 8);
 }
@@ -1139,15 +1185,34 @@ function openTypePicker(onPick) {
 }
 
 // ------------------------------------------------------------------
-// Tabs
+// Tabs — Traces is the primary workspace; everything technical lives in
+// Advanced (which hosts the old Math/Layers/Design/Source panes).
 // ------------------------------------------------------------------
 document.querySelectorAll("#tabs button").forEach(btn => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 });
 function switchTab(name) {
+    // Legacy targets (math/layers/design/source) now live inside Advanced.
+    if (["math", "layers", "design", "source"].includes(name)) {
+        switchTab("advanced");
+        switchAdvTab(name);
+        return;
+    }
     document.querySelectorAll("#tabs button").forEach(b =>
         b.classList.toggle("active", b.dataset.tab === name));
-    document.querySelectorAll(".tabpane").forEach(p =>
+    document.querySelectorAll("#tab-content > .tabpane").forEach(p =>
+        p.classList.toggle("active", p.dataset.pane === name));
+    if (name === "traces") renderTraceWorkspace();
+    if (name === "math") renderMathSheet();
+}
+// Advanced sub-tabs (the old top-level tabs, one level down).
+document.querySelectorAll("#adv-strip button").forEach(btn => {
+    btn.addEventListener("click", () => switchAdvTab(btn.dataset.atab));
+});
+function switchAdvTab(name) {
+    document.querySelectorAll("#adv-strip button").forEach(b =>
+        b.classList.toggle("active", b.dataset.atab === name));
+    document.querySelectorAll("#advanced-shell .tabpane").forEach(p =>
         p.classList.toggle("active", p.dataset.pane === name));
     if (name === "math") renderMathSheet();
 }
@@ -1499,7 +1564,10 @@ function renderMathSheet() {
     if (groups === null) {
         const empty = document.createElement("div");
         empty.className = "math-empty";
-        empty.textContent = "These layers aren't equations. Use “clear sheet” to start from scratch.";
+        empty.textContent = isTraceScene()
+            ? "This is a waveform scene — its traces are edited in the Traces tab. " +
+              "Raw channel equations can be added as layers here."
+            : "These layers aren't equations. Use “clear sheet” to start from scratch.";
         host.appendChild(empty);
         return;
     }
@@ -1575,6 +1643,9 @@ function mathCard(group) {
     return card;
 }
 
+// Old top-level Math tab is now an Advanced pane: it edits raw per-pixel
+// channel fields. Scenes are no longer auto-created here; point people back
+// to the primary workspace unless they specifically want raw pixel math.
 $("btn-add-field").addEventListener("click", () => {
     if (!workingRaw) return;
     const groups = mathGroups();
@@ -1591,6 +1662,13 @@ $("btn-add-field").addEventListener("click", () => {
 
 $("btn-new-math").addEventListener("click", () => {
     if (!workingRaw) return;
+    // Don't let the raw sheet wipe a trace scene — waveforms are edited in
+    // the Traces workspace; raw fields can be added as layers instead.
+    if (isTraceScene()) {
+        setStatus("this is a waveform scene — edit its traces in the Traces tab, " +
+            "or add a raw equations layer in Layers", "warn");
+        return;
+    }
     workingRaw.scene = BLANK_FIELD();
     workingRaw.parameters = {};
     selected = { kind: "scene", index: -1 };
@@ -1685,6 +1763,560 @@ shellEl.addEventListener("pointermove", e => {
     inspectAt(e.clientX, e.clientY);
 });
 shellEl.addEventListener("pointerleave", () => { inspectorEl.style.display = "none"; });
+
+// ------------------------------------------------------------------
+// Traces — the primary workspace. Simple visual editing: waveform,
+// color, Height / Frequency / Position / Speed up front; Phase and
+// Thickness (and Custom expressions) tucked into "More". No jargon.
+// ------------------------------------------------------------------
+
+const TRACE_WAVEFORMS = ["sine", "square", "triangle", "sawtooth", "custom"];
+const TRACE_SIGNAL_VARS = new Set(["p", "frequency", "sweepSpeed", "phaseOffset"]);
+const TRACE_KNOB_META = {
+    amplitude:  { label: "Height",     min: 0,    max: 1,    step: 0.01,
+                  tip: "How tall the wave appears." },
+    frequency:  { label: "Frequency",  min: 0,    max: 8,    step: 0.05,
+                  tip: "How many waves are visible across the screen." },
+    offset:     { label: "Position",   min: 0,    max: 1,    step: 0.01,
+                  tip: "Moves the wave up or down." },
+    sweepSpeed: { label: "Speed",      min: -12,  max: 12,   step: 0.1,
+                  tip: "How quickly the wave moves across the screen." },
+    phaseOffset:{ label: "Phase",      min: -6.5, max: 6.5,  step: 0.05,
+                  tip: "Shifts the wave relative to the others." },
+    thickness:  { label: "Thickness",  min: 0.005, max: 0.08, step: 0.001,
+                  tip: "Changes the thickness of the line." }
+};
+
+function isTraceScene() {
+    return workingRaw?.scene?.type === "scope";
+}
+
+function defaultTrace(i) {
+    // The canonical three-phase set: 120° apart, pure primaries.
+    const presets = [
+        { name: "R", color: "#ff0000", channel: "r", phaseOffset: 0 },
+        { name: "G", color: "#00ff00", channel: "g", phaseOffset: -2 * Math.PI / 3 },
+        { name: "B", color: "#0000ff", channel: "b", phaseOffset: -4 * Math.PI / 3 }
+    ];
+    const p = presets[i % 3];
+    return {
+        type: "trace", ...p,
+        waveform: "sine", amplitude: 0.35, frequency: 2,
+        offset: 0.5, sweepSpeed: 4, thickness: 0.02, enabled: true
+    };
+}
+
+function blankScopeScene() {
+    return {
+        type: "scope",
+        rows: [defaultTrace(0), defaultTrace(1), defaultTrace(2)]
+    };
+}
+
+function traceChannelBadge(row) {
+    if (row.channel === "r" || row.channel === "g" || row.channel === "b") {
+        const b = document.createElement("span");
+        b.className = `ch-badge ch-${row.channel}`;
+        b.style.cssText = "width:auto;padding:4px 7px;margin-top:0;";
+        b.textContent = row.channel.toUpperCase();
+        return b;
+    }
+    return null;
+}
+
+/** Desmos-style: invented names in a custom expression become sliders —
+ *  except the signal variables, which are built into every trace. */
+function adoptTraceIdentifiers(source) {
+    if (!workingRaw || typeof source !== "string" || !source.trim()) return;
+    let ast;
+    try { ast = compileExpression(source, undefined, true).ast; } catch { return; }
+    const found = new Set();
+    (function walk(node) {
+        if (!node || typeof node !== "object") return;
+        if (node.kind === "var" && node.name) found.add(node.name);
+        for (const k of Object.keys(node)) {
+            const v = node[k];
+            if (Array.isArray(v)) v.forEach(walk);
+            else if (v && typeof v === "object") walk(v);
+        }
+    })(ast);
+    let added = false;
+    for (const name of found) {
+        if (TRACE_SIGNAL_VARS.has(name)) continue;   // built into traces
+        if (isReservedName(name)) continue;
+        if (workingRaw.parameters?.[name]) continue;
+        if (!workingRaw.parameters) workingRaw.parameters = {};
+        workingRaw.parameters[name] = { value: 0.5, min: 0, max: 1, step: 0.01 };
+        added = true;
+    }
+    if (added) renderParams();
+}
+
+function traceKnob(row, key) {
+    const meta = TRACE_KNOB_META[key];
+    const wrap = document.createElement("div");
+    wrap.className = "knob";
+    const label = document.createElement("label");
+    label.textContent = meta.label;
+    label.title = meta.tip;
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = String(meta.min); slider.max = String(meta.max);
+    slider.step = String(meta.step);
+    slider.value = String(typeof row[key] === "number" ? row[key] : 0);
+    const num = document.createElement("input");
+    num.className = "knum"; num.type = "text"; num.spellcheck = false;
+    num.value = slider.value;
+    slider.addEventListener("input", () => {
+        row[key] = parseFloat(slider.value);
+        num.value = slider.value;
+        commitEdits();
+    });
+    num.addEventListener("change", () => {
+        const n = parseFloat(num.value);
+        if (Number.isFinite(n)) {
+            row[key] = n;
+            slider.value = String(Math.min(meta.max, Math.max(meta.min, n)));
+            commitEdits();
+        } else {
+            num.value = String(row[key] ?? 0);
+        }
+    });
+    wrap.append(label, slider, num);
+    return wrap;
+}
+
+function traceCard(row, index) {
+    const card = document.createElement("details");
+    card.className = "trace-card";
+    if (row._open) card.open = true;
+    card.addEventListener("toggle", () => { row._open = card.open; });
+
+    // --- header (always visible) ---
+    const head = document.createElement("summary");
+    head.className = "trace-head";
+    const caret = document.createElement("span");
+    caret.className = "trace-caret";
+    caret.textContent = "▸";
+    card.addEventListener("toggle", () => { caret.textContent = card.open ? "▾" : "▸"; });
+    caret.textContent = card.open ? "▾" : "▸";
+    const swatch = document.createElement("input");
+    swatch.type = "color"; swatch.className = "trace-swatch";
+    swatch.value = chanToHex(row.color);
+    swatch.title = "Trace color";
+    swatch.addEventListener("click", e => e.preventDefault());   // don't fold the card
+    swatch.addEventListener("input", () => {
+        row.color = swatch.value;
+        commitEdits();
+    });
+    const name = document.createElement("input");
+    name.type = "text"; name.className = "trace-name";
+    name.value = row.name || "";
+    name.placeholder = "trace";
+    name.title = "Trace name";
+    name.addEventListener("click", e => e.preventDefault());
+    name.addEventListener("input", () => {
+        row.name = name.value;
+        commitEdits();
+    });
+    const waveSel = document.createElement("select");
+    for (const w of TRACE_WAVEFORMS) {
+        const opt = document.createElement("option");
+        opt.value = w; opt.textContent = w;
+        waveSel.appendChild(opt);
+    }
+    waveSel.value = TRACE_WAVEFORMS.includes(row.waveform) ? row.waveform : "sine";
+    waveSel.title = "Waveform shape";
+    waveSel.addEventListener("change", () => {
+        row.waveform = waveSel.value;
+        if (row.waveform === "custom" && typeof row.expression !== "string") {
+            row.expression = "sin(p)";
+        }
+        row._open = true;   // stay open through the re-render
+        renderTraceWorkspace(true);
+        commitEdits();
+    });
+    const enable = document.createElement("input");
+    enable.type = "checkbox"; enable.className = "trace-enable";
+    enable.checked = row.enabled !== false;
+    enable.title = "Show / hide this trace";
+    enable.addEventListener("change", () => {
+        row.enabled = enable.checked;
+        commitEdits();
+    });
+    const del = document.createElement("button");
+    del.className = "secondary trace-del";
+    del.textContent = "✕";
+    del.title = "Delete this trace";
+    del.addEventListener("click", e => {
+        e.preventDefault();
+        scopeRows().splice(index, 1);
+        renderTraceWorkspace(true);
+        commitEdits();
+    });
+    const badge = traceChannelBadge(row);
+    head.append(caret, swatch, name);
+    if (badge) head.appendChild(badge);
+    head.append(waveSel, enable, del);
+    card.appendChild(head);
+
+    // --- body: primary knobs, then More (Phase / Thickness / expression) ---
+    const body = document.createElement("div");
+    body.className = "trace-body";
+    for (const k of ["amplitude", "frequency", "offset", "sweepSpeed"]) {
+        body.appendChild(traceKnob(row, k));
+    }
+    const more = document.createElement("details");
+    more.className = "more-wrap";
+    const moreBtn = document.createElement("summary");
+    moreBtn.className = "more-btn";
+    moreBtn.textContent = "More…";
+    more.appendChild(moreBtn);
+    const moreBody = document.createElement("div");
+    for (const k of ["phaseOffset", "thickness"]) moreBody.appendChild(traceKnob(row, k));
+    if (row.waveform === "custom") {
+        const f = document.createElement("label");
+        f.className = "field";
+        f.innerHTML =
+            `Expression <span class="expr-badge">signal</span>` +
+            `<span class="hint">Shape only — Height/Position apply after it. ` +
+            `Variables: p (sweep angle), x, t, frequency, sweepSpeed, phaseOffset. Try sin(p).</span>`;
+        const ta = document.createElement("textarea");
+        ta.rows = 2; ta.spellcheck = false;
+        ta.value = typeof row.expression === "string" ? row.expression : "sin(p)";
+        let adoptTimer = null;
+        ta.addEventListener("input", () => {
+            row.expression = ta.value;
+            clearTimeout(adoptTimer);
+            adoptTimer = setTimeout(() => {
+                const before = Object.keys(workingRaw?.parameters || {}).length;
+                adoptTraceIdentifiers(ta.value);
+                if (Object.keys(workingRaw?.parameters || {}).length > before) {
+                    ta.dispatchEvent(new Event("input", { bubbles: false }));
+                }
+            }, 250);
+            commitEdits();
+        });
+        f.appendChild(ta);
+        moreBody.appendChild(f);
+        attachExprEditor(ta, { signal: true });
+    }
+    more.appendChild(moreBody);
+    body.appendChild(more);
+    card.appendChild(body);
+    return card;
+}
+
+// --- background: simple color editing; raw expressions stay in Advanced ---
+function appendBackgroundCard(tbody, rows) {
+    const idx = rows.findIndex(r => !r || r.type !== "trace");
+    const card = document.createElement("div");
+    card.className = "bg-card";
+    if (idx === -1) {
+        card.innerHTML =
+            `<span class="bg-note">No background — traces draw on black.</span>`;
+    } else {
+        const bg = rows[idx];
+        const isColor = bg.type === "color";
+        const sw = document.createElement("input");
+        sw.type = "color"; sw.className = "trace-swatch";
+        sw.value = toHex(bg.color) || "#000000";
+        sw.title = "Background color";
+        sw.addEventListener("input", () => { bg.color = sw.value; commitEdits(); });
+        const note = document.createElement("span");
+        note.className = "bg-note";
+        note.textContent = isColor
+            ? "Background"
+            : `Background (${bg.type}) — edit in Advanced → Math`;
+        if (!isColor) sw.disabled = true;
+        const del = document.createElement("button");
+        del.className = "secondary trace-del"; del.textContent = "✕";
+        del.title = "Remove background";
+        del.addEventListener("click", () => {
+            rows.splice(idx, 1);
+            renderTraceWorkspace(true);
+            commitEdits();
+        });
+        card.append(sw, note, del);
+    }
+    tbody.appendChild(card);
+}
+
+const traceUIState = { tracesOpen: true, displayOpen: true };
+
+function buildDisplaySection() {
+    const sec = document.createElement("details");
+    sec.className = "ws-section";
+    sec.open = traceUIState.displayOpen;
+    sec.addEventListener("toggle", () => { traceUIState.displayOpen = sec.open; });
+    const s = document.createElement("summary");
+    s.textContent = "Display";
+    sec.appendChild(s);
+    const body = document.createElement("div");
+    body.className = "ws-body";
+
+    // Vertical scale — serialized; the renderer maps signal -> screen.
+    const vs = document.createElement("div");
+    vs.className = "knob";
+    const vsLab = document.createElement("label");
+    vsLab.textContent = "Vertical scale";
+    vsLab.title = "Stretches all waves vertically together.";
+    const vsR = document.createElement("input");
+    vsR.type = "range"; vsR.min = "0.2"; vsR.max = "2"; vsR.step = "0.05";
+    const cur = typeof workingRaw.scene.verticalScale === "number"
+        ? workingRaw.scene.verticalScale : 1;
+    vsR.value = String(cur);
+    const vsN = document.createElement("input");
+    vsN.className = "knum"; vsN.type = "text"; vsN.value = String(cur);
+    vsR.addEventListener("input", () => {
+        workingRaw.scene.verticalScale = parseFloat(vsR.value);
+        vsN.value = vsR.value;
+        commitEdits();
+    });
+    vsN.addEventListener("change", () => {
+        const n = parseFloat(vsN.value);
+        if (Number.isFinite(n)) {
+            workingRaw.scene.verticalScale = n;
+            commitEdits();
+        } else {
+            vsN.value = String(workingRaw.scene.verticalScale ?? 1);
+        }
+    });
+    vs.append(vsLab, vsR, vsN);
+    body.appendChild(vs);
+
+    // Grid + center line: studio-only overlays. Never serialized, never
+    // rendered by the AMOLED simulator, not part of exports.
+    const gridRow = document.createElement("div");
+    gridRow.style.cssText = "display:flex; gap:18px; margin-top:10px; align-items:center; flex-wrap:wrap;";
+    for (const [key, label, tip] of [
+        ["grid", "Grid", "Editing aid only — shows divisions on the preview. Never saved."],
+        ["centerline", "Center line", "Editing aid only — marks the vertical middle. Never saved."]
+    ]) {
+        const lab = document.createElement("label");
+        lab.style.cssText = "display:flex;gap:6px;align-items:center;color:var(--dim);font-size:12px;cursor:pointer;";
+        lab.title = tip;
+        const cb = document.createElement("input");
+        cb.type = "checkbox"; cb.className = "trace-enable";
+        cb.checked = localStorage.getItem(key) === "1";
+        cb.addEventListener("change", () => {
+            localStorage.setItem(key, cb.checked ? "1" : "0");
+            updateScopeOverlay();
+        });
+        lab.append(cb, document.createTextNode(label));
+        gridRow.appendChild(lab);
+    }
+    const glowNote = document.createElement("span");
+    glowNote.className = "hint";
+    glowNote.style.marginLeft = "auto";
+    glowNote.textContent = "Glow & brightness: Advanced → Design";
+    gridRow.appendChild(glowNote);
+    body.appendChild(gridRow);
+    sec.appendChild(body);
+    return sec;
+}
+
+function buildAdvancedSection() {
+    const sec = document.createElement("details");
+    sec.className = "ws-section";
+    const s = document.createElement("summary");
+    s.textContent = "Advanced";
+    sec.appendChild(s);
+    const body = document.createElement("div");
+    body.className = "ws-body";
+    body.innerHTML =
+        `<span class="hint">Raw channel equations, layers, blending, display design and the scene source live here.</span>`;
+    const btn = document.createElement("button");
+    btn.className = "secondary"; btn.style.marginTop = "8px";
+    btn.textContent = "Open Advanced";
+    btn.addEventListener("click", () => switchTab("advanced"));
+    body.appendChild(btn);
+    sec.appendChild(body);
+    return sec;
+}
+
+function buildHelpNote() {
+    const d = document.createElement("details");
+    d.className = "ws-help";
+    d.innerHTML =
+        `<summary>How this works</summary>` +
+        `<div class="hint">A trace is a moving waveform. Height controls how tall it is · ` +
+        `Position moves it up or down · Frequency controls how many waves are visible · ` +
+        `Speed controls how quickly it moves · Phase shifts it relative to the others.<br><br>` +
+        `Custom expressions define the wave shape: <code>sin(p)</code> is the built-in sine; ` +
+        `<code>sin(p) + 0.3*sin(3*p)</code> adds a harmonic. Height and Position still apply afterwards.</div>`;
+    return d;
+}
+
+function scopeRows() {
+    return isTraceScene() ? (workingRaw.scene.rows || []) : [];
+}
+
+let _traceSig = "";
+function renderTraceWorkspace(force = false) {
+    document.body.classList.toggle("trace-mode", isTraceScene());
+    const pane = $("pane-traces");
+    if (!pane || !workingRaw) return;
+    // Commit-driven reloads (every knob drag) must NOT rebuild the DOM —
+    // that would steal focus mid-drag. Only structure changes (scene type,
+    // trace count) or an explicit force trigger a rebuild.
+    const sig = `${workingRaw?.scene?.type}:${(workingRaw?.scene?.rows || []).filter(r => r?.type === "trace").length}`;
+    if (!force && sig === _traceSig) { updateScopeOverlay(); return; }
+    _traceSig = sig;
+    pane.innerHTML = "";
+
+    if (!isTraceScene()) {
+        // Non-scope scene loaded: it renders unchanged; don't mutate it.
+        const note = document.createElement("div");
+        note.className = "math-empty";
+        note.innerHTML =
+            `This scene isn't a waveform scene — it renders unchanged.<br>` +
+            `Edit it with the raw tools in <b>Advanced</b>, or start fresh:`;
+        const btn = document.createElement("button");
+        btn.style.marginTop = "8px";
+        btn.textContent = "Start a waveform scene";
+        btn.addEventListener("click", () => {
+            workingRaw.scene = blankScopeScene();
+            selected = { kind: "scene", index: -1 };
+            hydrateAll();
+            syncSourceFromWorking();
+            loadToPlayer();
+        });
+        note.appendChild(btn);
+        pane.appendChild(note);
+        updateScopeOverlay();
+        return;
+    }
+
+    // --- TRACES section ---
+    const traces = document.createElement("details");
+    traces.className = "ws-section";
+    traces.open = traceUIState.tracesOpen;
+    traces.addEventListener("toggle", () => { traceUIState.tracesOpen = traces.open; });
+    const ts = document.createElement("summary");
+    ts.textContent = "Traces";
+    traces.appendChild(ts);
+    const tbody = document.createElement("div");
+    tbody.className = "ws-body";
+    const rows = scopeRows();
+    rows.forEach((row, i) => {
+        if (row && row.type === "trace") tbody.appendChild(traceCard(row, i));
+    });
+    const addRow = document.createElement("div");
+    addRow.className = "layer-actions";
+    const addT = document.createElement("button");
+    addT.textContent = "+ Add trace";
+    addT.addEventListener("click", () => {
+        const n = rows.filter(r => r && r.type === "trace").length;
+        workingRaw.scene.rows.push(defaultTrace(n));
+        renderTraceWorkspace(true);
+        commitEdits();
+    });
+    const addB = document.createElement("button");
+    addB.className = "secondary";
+    addB.textContent = "+ Background";
+    addB.addEventListener("click", () => {
+        workingRaw.scene.rows.unshift({ type: "color", color: "#000000" });
+        renderTraceWorkspace(true);
+        commitEdits();
+    });
+    addRow.append(addT, addB);
+    tbody.appendChild(addRow);
+    appendBackgroundCard(tbody, rows);
+    traces.appendChild(tbody);
+    pane.appendChild(traces);
+
+    // --- DISPLAY section ---
+    pane.appendChild(buildDisplaySection());
+
+    // --- ADVANCED (collapsed by default) ---
+    pane.appendChild(buildAdvancedSection());
+
+    // --- small plain-language help affordance ---
+    pane.appendChild(buildHelpNote());
+
+    updateScopeOverlay();
+}
+
+// --- studio-only scope overlay (grid / center line) ---
+function updateScopeOverlay() {
+    const ov = $("scope-overlay");
+    if (!ov) return;
+    ov.innerHTML = "";
+    if (localStorage.getItem("grid") === "1") {
+        const g = document.createElement("div");
+        g.className = "so-grid";
+        ov.appendChild(g);
+    }
+    if (localStorage.getItem("centerline") === "1") {
+        const c = document.createElement("div");
+        c.className = "so-center";
+        ov.appendChild(c);
+    }
+    ov.style.display = ov.childElementCount ? "block" : "none";
+}
+
+// ------------------------------------------------------------------
+// Resizable preview/editor split (desktop): drag, touch, keyboard
+// nudge, double-click to reset. Persists across reloads.
+// ------------------------------------------------------------------
+const divider = $("col-divider");
+const PREVIEW_W_KEY = "amo.previewWidth";
+const PREVIEW_W_DEFAULT = 46;   // vw
+
+function applyPreviewWidth(vw) {
+    document.body.style.setProperty("--preview-w", `${vw}vw`);
+}
+function clampPreviewWidth(px) {
+    const bodyW = document.body.clientWidth;
+    const min = Math.min(320, Math.max(200, bodyW * 0.18));
+    const max = bodyW - 380;   // keep the editor comfortably usable
+    return Math.min(Math.max(px, min), Math.max(min, max));
+}
+(function initDivider() {
+    if (!divider) return;
+    const saved = parseFloat(localStorage.getItem(PREVIEW_W_KEY));
+    applyPreviewWidth(Number.isFinite(saved) ? saved : PREVIEW_W_DEFAULT);
+    let dragging = false, dragStartX = 0, startW = 0;
+
+    divider.addEventListener("pointerdown", e => {
+        if (window.innerWidth < 1000) return;
+        dragging = true;
+        dragStartX = e.clientX;
+        startW = $("preview-section").getBoundingClientRect().width;
+        divider.setPointerCapture(e.pointerId);
+        document.body.classList.add("col-resizing");
+    });
+    divider.addEventListener("pointermove", e => {
+        if (!dragging) return;
+        const w = clampPreviewWidth(startW + (e.clientX - dragStartX));
+        applyPreviewWidth((w / document.body.clientWidth) * 100);
+    });
+    const endDrag = () => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.classList.remove("col-resizing");
+        const pv = $("preview-section").getBoundingClientRect().width;
+        localStorage.setItem(PREVIEW_W_KEY, String((pv / document.body.clientWidth) * 100));
+    };
+    divider.addEventListener("pointerup", endDrag);
+    divider.addEventListener("pointercancel", endDrag);
+    divider.addEventListener("dblclick", () => {
+        localStorage.removeItem(PREVIEW_W_KEY);
+        applyPreviewWidth(PREVIEW_W_DEFAULT);
+    });
+    divider.addEventListener("keydown", e => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        const step = (e.shiftKey ? 4 : 1) * document.body.clientWidth / 100;
+        const dir = e.key === "ArrowLeft" ? -1 : 1;
+        const pv = $("preview-section").getBoundingClientRect().width;
+        const w = clampPreviewWidth(pv + dir * step);
+        const vw = (w / document.body.clientWidth) * 100;
+        applyPreviewWidth(vw);
+        localStorage.setItem(PREVIEW_W_KEY, String(vw));
+    });
+})();
 
 // ------------------------------------------------------------------
 // Gallery
@@ -1805,7 +2437,8 @@ $("banner-dismiss")?.addEventListener?.("click", () => {
         $("env-banner").style.display = "block";
     }
     boot();
-    // Boot straight into a living math sheet: three-phase AC. Type over it.
+    // Boot straight into an editable three-phase scope: three moving traces,
+    // 120° apart (spec §11). Everything is a normal, editable scene.
     workingRaw = {
         amo: 1,
         meta: { name: "my scene", author: "" },
@@ -1816,14 +2449,15 @@ $("banner-dismiss")?.addEventListener?.("click", () => {
         },
         quality: { fps: 30 },
         timeline: { duration: 8, loop: true },
-        scene: DEFAULT_FIELD()
+        scene: blankScopeScene()
     };
     selected = { kind: "scene", index: -1 };
     hydrateDesign(workingRaw);
     renderLayers();
     renderLayerEditor();
     renderParams();
-    renderMathSheet();
+    renderTraceWorkspace(true);
+    updateScopeOverlay();
     syncSourceFromWorking();
     initPresets();
     loadToPlayer().then(() => {

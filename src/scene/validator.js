@@ -18,7 +18,7 @@ export class AmoError extends Error {
 
 const KNOWN_TOP_LEVEL = new Set(["amo", "meta", "display", "quality", "assets", "scene", "timeline", "parameters"]);
 const KNOWN_DISPLAY = new Set(["pitch", "gamma", "brightness", "spill", "emitters", "bloom", "pentile"]);
-const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "flow", "particles", "curve", "expression", "composite", "shape", "conicGradient", "waves"]);
+const KNOWN_SCENE_TYPES = new Set(["color", "gradient", "livingGradient", "image", "gif", "video", "pattern", "flow", "particles", "curve", "expression", "composite", "shape", "conicGradient", "waves", "scope"]);
 const KNOWN_FIT = new Set(["cover", "contain", "stretch"]);
 const KNOWN_DIRECTIONS = new Set(["vertical", "horizontal", "diagonal", "radial"]);
 const KNOWN_EASINGS = new Set(["linear", "smoothstep", "easeIn", "easeOut"]);
@@ -168,6 +168,7 @@ const KNOWN_FIELDS_FOR_TYPE = {
     curve: ["type", "x", "y", "samples", "thickness", "glow", "decay", "color", "bg", "seed"],
     expression: ["type", "r", "g", "b", "seed"],
     composite: ["type", "layers"],
+    scope: ["type", "rows", "verticalScale", "seed"],
     shape: ["type", "kind", "cx", "cy", "r", "innerR", "outerR", "w", "h", "x1", "y1", "x2", "y2", "thickness", "softness", "color", "bg"],
     conicGradient: ["type", "cx", "cy", "angle", "from", "to", "softness"],
     waves: ["type", "wavelength", "amplitude", "speed", "angle", "phase", "color", "bg"]
@@ -409,9 +410,103 @@ function normalizeSceneContent(s, path, warnings, assets, paramNames) {
         if (!Array.isArray(s.layers)) fail(`${path}.layers`, "expected array");
         if (s.layers.length === 0) fail(`${path}.layers`, "composite needs at least one layer");
         scene.layers = s.layers.map((l, i) => normalizeLayer(l, `${path}.layers[${i}]`, warnings, assets, paramNames));
+    } else if (s.type === "scope") {
+        if (!Array.isArray(s.rows)) fail(`${path}.rows`, "scope needs a rows array");
+        if (s.rows.length === 0) fail(`${path}.rows`, "scope needs at least one row");
+        scene.rows = s.rows.map((r, i) => normalizeScopeRow(r, `${path}.rows[${i}]`, warnings, assets, paramNames));
+        scene.verticalScale = evalueNum(s.verticalScale, `${path}.verticalScale`, 0.05, 4, 1, warnings, paramNames);
+        if (isFiniteNumber(s.seed)) scene.seed = s.seed;
     }
 
     return Object.freeze(scene);
+}
+
+// ------------------------------------------------------------------
+// Scope scene rows (signal-lab-spec.md §4/§5): first-class traces plus
+// ordinary content rows (backgrounds). The trace model:
+//   p   = 2*pi*frequency*x - sweepSpeed*t + phaseOffset   (signal space)
+//   sig = waveform(p)          custom: user expression (shape only)
+//   V   = amplitude * sig
+//   y   = offset - V * verticalScale                      (renderer-owned)
+// Horizontal speed in screen-widths/s = sweepSpeed / (2*pi*frequency).
+// Custom expressions run in SIGNAL space: pixel-space variables (y/v) are
+// rejected with guidance, amplitude/offset are never expression inputs.
+// ------------------------------------------------------------------
+
+const KNOWN_WAVEFORMS = new Set(["sine", "square", "triangle", "sawtooth", "custom"]);
+const SIGNAL_EXTRA_VARS = ["p", "frequency", "sweepSpeed", "phaseOffset"];
+const PIXEL_ONLY_IDENTS = new Set(["y", "v"]);
+const KNOWN_TRACE_FIELDS = new Set(["type", "name", "waveform", "expression", "color", "channel",
+    "amplitude", "frequency", "phaseOffset", "offset", "sweepSpeed", "thickness", "enabled", "samples"]);
+
+function astReferencesIdent(node, names) {
+    if (!node || typeof node !== "object") return false;
+    if (node.kind === "var" && names.has(node.name)) return true;
+    for (const k of Object.keys(node)) {
+        const v = node[k];
+        if (Array.isArray(v)) {
+            for (const item of v) if (astReferencesIdent(item, names)) return true;
+        } else if (v && typeof v === "object") {
+            if (astReferencesIdent(v, names)) return true;
+        }
+    }
+    return false;
+}
+
+function normalizeScopeRow(r, path, warnings, assets, paramNames) {
+    if (!r || typeof r !== "object") fail(path, "row must be an object");
+    if (r.type === "trace") {
+        const row = { type: "trace" };
+        for (const k of Object.keys(r)) {
+            if (!KNOWN_TRACE_FIELDS.has(k)) warnings.push(`${path}.${k}: unknown field for trace row ignored`);
+        }
+        row.name = typeof r.name === "string" ? r.name : "";
+        row.waveform = KNOWN_WAVEFORMS.has(r.waveform) ? r.waveform : "sine";
+        if (r.waveform !== undefined && r.waveform !== row.waveform) {
+            fail(`${path}.waveform`, `expected one of ${[...KNOWN_WAVEFORMS].join("|")}, got ${JSON.stringify(r.waveform)}`);
+        }
+        if (row.waveform === "custom") {
+            if (typeof r.expression !== "string") {
+                fail(`${path}.expression`, "custom traces need an `expression` string");
+            }
+            const extra = new Set([...(paramNames || []), ...SIGNAL_EXTRA_VARS]);
+            let ast;
+            try {
+                ast = compileExpression(r.expression, extra).ast;
+            } catch (e) {
+                fail(`${path}.expression`, `invalid expression: ${e.message}`);
+            }
+            if (astReferencesIdent(ast, PIXEL_ONLY_IDENTS)) {
+                fail(`${path}.expression`,
+                    "y/v are pixel-space variables — a trace takes a signal value (-1..1); " +
+                    "set vertical placement with the offset knob");
+            }
+            row.expression = r.expression;
+        }
+        const col = normalizeColor(r.color ?? "#ffffff", `${path}.color`);
+        row.color = col ?? { r: 1, g: 1, b: 1 };
+        if (r.channel !== undefined && r.channel !== null) {
+            if (r.channel !== "r" && r.channel !== "g" && r.channel !== "b") {
+                fail(`${path}.channel`, `expected "r", "g", "b" or null, got ${JSON.stringify(r.channel)}`);
+            }
+            row.channel = r.channel;
+        }
+        const ev = (v, p, min, max, fb) => evalueNum(v, `${path}.${p}`, min, max, fb, warnings, paramNames);
+        row.amplitude = ev(r.amplitude, "amplitude", 0, 2, 0.35);
+        row.frequency = ev(r.frequency, "frequency", 0, 64, 2);
+        row.phaseOffset = ev(r.phaseOffset, "phaseOffset", -64, 64, 0);
+        row.offset = ev(r.offset, "offset", -1, 2, 0.5);
+        row.sweepSpeed = ev(r.sweepSpeed, "sweepSpeed", -64, 64, 4);
+        row.thickness = ev(r.thickness, "thickness", 0.001, 0.2, 0.02);
+        row.enabled = r.enabled !== false;
+        if (r.samples !== undefined && r.samples !== null) {
+            row.samples = Math.round(num(r.samples, `${path}.samples`, 16, 4000, 800, warnings, false));
+        }
+        return Object.freeze(row);
+    }
+    // Ordinary content row (color/expression/... rendered in row order;
+    // backgrounds sit underneath traces when placed first).
+    return normalizeSceneContent(r, path, warnings, assets, paramNames);
 }
 
 function normalizeLayer(l, path, warnings, assets, paramNames) {
@@ -471,6 +566,16 @@ function normalizeLayer(l, path, warnings, assets, paramNames) {
  *  - no timeline keyframes exist, AND
  *  - the type is not inherently animated (gif/video).
  */
+function traceRowIsStatic(row) {
+    if (row.enabled === false) return true;   // draws nothing
+    if (!(typeof row.sweepSpeed === "number" && row.sweepSpeed === 0)) return false;
+    for (const k of ["amplitude", "frequency", "phaseOffset", "offset", "thickness"]) {
+        if (typeof row[k] === "string" && expressionReferencesTime(row[k])) return false;
+    }
+    if (row.waveform === "custom" && expressionReferencesTime(row.expression)) return false;
+    return true;
+}
+
 function sceneIsStatic(scene) {
     switch (scene.type) {
         case "gif":
@@ -487,6 +592,13 @@ function sceneIsStatic(scene) {
         case "composite":
             // Inherently-dynamic layers nest: recurse per layer.
             return scene.layers.every(l => sceneIsStatic(l));
+        case "scope":
+            // Traces are static iff they never move (sweepSpeed 0) and no
+            // slot/expression references time; field rows recurse as usual.
+            return scene.rows.every(r => r.type === "trace"
+                ? traceRowIsStatic(r)
+                : sceneIsStatic(r))
+                && !(typeof scene.verticalScale === "string" && expressionReferencesTime(scene.verticalScale));
         default:
             return !treeReferencesTime(scene);
     }

@@ -36,14 +36,16 @@ page.on("pageerror", e => fail("PAGEERROR: " + e.message));
 await page.goto(`http://127.0.0.1:${server.address().port}/generator/index.html`, { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise(r => setTimeout(r, 3000));
 
-// boot: math-first with a default expression sheet
+// boot: traces-first with the canonical three-phase scope
 const boot = await page.evaluate(() => ({
     player: !!window.__gplayerRef(),
-    type: window.__gworking()?.scene?.type
+    type: window.__gworking()?.scene?.type,
+    rows: window.__gworking()?.scene?.rows?.length
 }));
 console.log("boot:", JSON.stringify(boot));
 if (!boot.player) fail("player missing");
-if (boot.type !== "expression") fail(`default scene ${boot.type}`);
+if (boot.type !== "scope") fail(`default scene ${boot.type}`);
+if (boot.rows !== 3) fail(`expected 3 boot traces, got ${boot.rows}`);
 
 // load a composite through the source pane to exercise the layers flow
 await page.evaluate(() => {

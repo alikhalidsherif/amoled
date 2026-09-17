@@ -99,6 +99,8 @@ identical output on every device and every FPS.
 | `particles` | Stateless seeded systems (drift/orbit/rise/fall/fireflies/snow) |
 | `curve` | Parametric math art via `x(p)`/`y(p)` expressions with glow |
 | `expression` | Per-pixel fields: `r`, `g`, `b` expressions of `x y t` |
+| `scope` | Signal traces: waveforms swept across x, animated by t (see below) |
+| `scope` | Signal traces: waveforms swept across x, animated by t (see below) |
 | `image` / `gif` / `video` | Media sources sampled into the same field model |
 | `composite` | Layer stack: blend modes (`normal add multiply screen overlay`), opacity, clip rect, scale, rotation |
 
@@ -135,7 +137,7 @@ Keyframes animate whitelisted display properties (not scene structure).
 
 ## Examples
 
-See `scenes/*.amo` — in particular `three-phase.amo` (canonical R/G/B phase
-offsets driven by an `omega` parameter), `three-phase-scope.amo` (the same
-signals as oscilloscope traces) and `orbiting-emitters.amo` (moving emitters
-on parametric orbits).
+See `scenes/*.amo` — in particular `three-phase-scope.amo` (the canonical
+three-phase oscilloscope: three sine traces 120° apart), `three-phase.amo`
+(the same signals as raw channel equations), and `orbiting-emitters.amo`
+(moving emitters on parametric orbits).

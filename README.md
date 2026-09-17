@@ -100,6 +100,7 @@ player.play(); player.pause(); player.scrub(3.2);
 | `conicGradient` | Color sweep rotating around a center point |
 | `waves` | Traveling plane wave with wavelength/amplitude/speed/angle/phase |
 | `curve` | Parametric math art — Lissajous, harmonographs, roses, spirographs via `x(p)`/`y(p)` expressions with glow and damping |
+| `scope` | Signal traces — waveforms swept across x, animated by t; three-phase AC is the canonical example |
 | `expression` | Per-pixel math: `r/g/b` expressions over `x y t u v noise(...)` |
 | `image` / `gif` / `video` | Media sources, rasterized to logical resolution |
 | `composite` | Layer stack with blend modes (`normal/add/multiply/screen/overlay`), opacity, clip rects, scale + **rotation**, offsets |
@@ -161,9 +162,15 @@ and never touches art direction.
 
 ### Authoring
 
-The hybrid studio at `/generator/index.html` offers live preview through the real
-player, a round-tripping `.amo` source pane, timeline scrubbing with frame
-stepping and speed control, motion presets
+The studio at `/generator/index.html` is **trace-first**: it boots into an
+editable three-phase oscilloscope where a waveform is one card with simple
+controls — Height, Frequency, Position, Speed (plus Phase and Thickness under
+“More”). Raw per-pixel math, layers/blend modes, display design and the JSON
+source live in **Advanced**. The preview/editor split is draggable (persists
+across reloads; double-click resets), and the scope grid/center-line are
+studio-only overlays — never serialized, never rendered by the simulator.
+Advanced authoring also includes live preview through the real player,
+timeline scrubbing with frame stepping and speed control, motion presets
 (pulse/orbit/sway/flicker/hueDrift/… that expand to plain expressions),
 a Desmos-style expression editor (syntax highlighting, autocomplete, inline
 errors), named parameter sliders, and a pixel inspector — plus export.
