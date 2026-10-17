@@ -35,7 +35,7 @@ const sampleCanvas = () => page.evaluate(() => {
     return [...x.getImageData(0, 0, 48, 32).data.filter((_, i) => i % 4 === 1)]; // green channel strip
 });
 
-await page.goto(`http://127.0.0.1:${port}/?scene=scenes/procedural.amo`, { waitUntil: "domcontentloaded", timeout: 60000 });
+await page.goto(`http://127.0.0.1:${port}/sim/index.html?scene=scenes/procedural.amo`, { waitUntil: "domcontentloaded", timeout: 60000 });
 if (!await waitForRender()) fail("no render completed");
 
 // --- plasma animates ---

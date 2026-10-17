@@ -209,5 +209,26 @@ try {
     ok(warnings.some(w => /nonsense/.test(w)), "unknown field warning");
 }
 
+// 17. Arbitrary/mixed hex survives validation; invalid colors rejected.
+{
+    const { definition } = validate({
+        rows: [{ type: "trace", waveform: "sine", color: "#ff8844" }]
+    });
+    const c = definition.scene.rows[0].color;
+    ok(c.r === 1 && Math.abs(c.g - 136 / 255) < 1e-9 && Math.abs(c.b - 68 / 255) < 1e-9,
+        `#ff8844 survives validation as {r,g,b} (got ${JSON.stringify(c)})`);
+    const short = validate({
+        rows: [{ type: "trace", waveform: "sine", color: "#f84" }]
+    });
+    const c3 = short.definition.scene.rows[0].color;
+    ok(c3.r === c.r && c3.g === c.g && c3.b === c.b, "3-digit #f84 expands to #ff8844");
+}
+try {
+    validate({ rows: [{ type: "trace", waveform: "sine", color: "red" }] });
+    ok(false, "non-hex color should fail");
+} catch (e) {
+    ok(/hex color/.test(e.message), "invalid color rejected");
+}
+
 console.log(`scope-scene: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

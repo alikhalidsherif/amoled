@@ -37,10 +37,16 @@
                 throw new Error("AMOLED renderer could not find a target canvas.");
             }
 
-            this.ctx = this.canvas.getContext("2d", {
-                alpha: false,
-                desynchronized: true
-            });
+            // `desynchronized` is only a hint; some engines (Firefox) reject
+            // contexts requested with unsupported attributes — retry bare
+            // before giving up.
+            const ctxAttrs = { alpha: false, desynchronized: true };
+            this.ctx =
+                this.canvas.getContext("2d", ctxAttrs) ||
+                this.canvas.getContext(
+                    "2d",
+                    Object.assign({}, ctxAttrs, { desynchronized: false })
+                );
 
             if (!this.ctx) {
                 throw new Error("Unable to acquire CanvasRenderingContext2D.");

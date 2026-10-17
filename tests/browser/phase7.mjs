@@ -19,7 +19,7 @@ const page = await browser.newPage();
 let failures = 0;
 const fail = m => { failures++; console.log("FAIL:", m); };
 page.on("pageerror", e => fail("PAGEERROR: " + e.message));
-await page.goto(`http://127.0.0.1:${server.address().port}/?scene=scenes/color.amo`, { waitUntil: "domcontentloaded", timeout: 60000 });
+await page.goto(`http://127.0.0.1:${server.address().port}/sim/index.html?scene=scenes/color.amo`, { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise(r => setTimeout(r, 1500));
 
 // ---- per-field mapping audit ----

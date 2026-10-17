@@ -284,14 +284,23 @@
                 throw new Error("GPU simulator could not find a target canvas.");
             }
 
-            const gl = this.canvas.getContext("webgl2", {
+            // `desynchronized` is only a hint; some engines (Firefox) reject
+            // contexts requested with unsupported attributes — retry bare
+            // before giving up.
+            const glAttrs = {
                 alpha: false,
                 antialias: false,
                 depth: false,
                 stencil: false,
                 desynchronized: true,
                 preserveDrawingBuffer: false
-            });
+            };
+            const gl =
+                this.canvas.getContext("webgl2", glAttrs) ||
+                this.canvas.getContext(
+                    "webgl2",
+                    Object.assign({}, glAttrs, { desynchronized: false })
+                );
             if (!gl) {
                 throw new Error("WebGL2 context unavailable.");
             }

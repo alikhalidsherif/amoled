@@ -20,6 +20,7 @@ import { rasterize } from "../src/scene/rasterizer.js";
 import AMOLEDPlayer from "../src/player/amoplayer.js";
 
 const GPUPentileSimulator = window.AMOLED.GPUPentileSimulator;
+const attachColorPopover = window.AMOLED.attachColorPopover;
 
 const $ = id => document.getElementById(id);
 const statusEl = $("statusbar");
@@ -417,9 +418,9 @@ const TYPE_FIELDS = {
         { key: "direction", label: "Direction", kind: "select", options: ["vertical", "horizontal", "diagonal", "radial"], def: "vertical" }
     ],
     color: [{ key: "color", label: "Color", kind: "color", def: "#06120a" }],
-    image: [{ key: "__assetUrl", label: "Image URL", kind: "asset", def: "../assets/test-portrait.gif" },
+    image: [{ key: "__assetUrl", label: "Image URL", kind: "asset", def: "/assets/test-portrait.gif" },
             { key: "fit", label: "Fit", kind: "select", options: ["cover", "contain", "stretch"], def: "cover" }],
-    gif: [{ key: "__assetUrl", label: "GIF URL", kind: "asset", def: "../assets/test-portrait.gif" },
+    gif: [{ key: "__assetUrl", label: "GIF URL", kind: "asset", def: "/assets/test-portrait.gif" },
           { key: "fit", label: "Fit", kind: "select", options: ["cover", "contain", "stretch"], def: "cover" }],
     video: [{ key: "__assetUrl", label: "Video URL (.webm/.mp4)", kind: "asset", def: "" }]
 };
@@ -458,12 +459,17 @@ function isComposite() {
 // Source pane <-> workingRaw
 // ------------------------------------------------------------------
 let reparseTimer = null;
+// True when the Source textarea holds edits that have not parsed yet.
+// A debounced field-editor commit must never overwrite them (and vice
+// versa: whichever pane the user touched last wins).
+let sourceDirty = false;
 
 function syncSourceFromWorking() {
     suppressSourceSync = true;
     sourceEl.value = JSON.stringify(workingRaw, null, 2);
     suppressSourceSync = false;
     sourceEl.classList.remove("invalid");
+    sourceDirty = false;
 }
 
 async function loadToPlayer() {
@@ -518,6 +524,7 @@ function describeErrorField(path) {
 
 function onSourceEdit() {
     if (suppressSourceSync) return;
+    sourceDirty = true;
     clearTimeout(reparseTimer);
     reparseTimer = setTimeout(async () => {
         let raw;
@@ -531,6 +538,7 @@ function onSourceEdit() {
         try {
             const parsed = parseAmo(raw);
             workingRaw = raw;
+            sourceDirty = false;
             clampSelection();
             hydrateAll();
             await loadToPlayer();
@@ -860,14 +868,21 @@ function renderField(f, frag) {
             break;
         }
         case "color": {
-            input = document.createElement("input");
-            input.type = "color";
-            input.value = toHex(frag[f.key]) || f.def;
-            if (typeof frag[f.key] === "string" && frag[f.key][0] !== "#") input.disabled = true;
-            input.addEventListener("input", () => {
-                frag[f.key] = input.value;
-                commitEdits();
-            });
+            input = document.createElement("button");
+            input.type = "button";
+            input.className = "trace-swatch";
+            input.title = "Pick color";
+            const exprDriven = typeof frag[f.key] === "string" && frag[f.key][0] !== "#";
+            if (exprDriven) {
+                input.disabled = true;
+                input.style.background = toHex(frag[f.key]) || f.def;
+                input.title = "Color comes from an expression — edit it in Source";
+            } else {
+                attachColorPopover(input, {
+                    get: () => toHex(frag[f.key]) || f.def,
+                    set: hex => { frag[f.key] = hex; commitEdits(); }
+                });
+            }
             break;
         }
         case "color-or-json": {
@@ -1018,7 +1033,7 @@ let commitTimer = null;
 function commitEdits() {
     clearTimeout(commitTimer);
     commitTimer = setTimeout(() => {
-        syncSourceFromWorking();
+        if (!sourceDirty) syncSourceFromWorking();
         loadToPlayer();
     }, 350);
 }
@@ -1791,19 +1806,37 @@ function isTraceScene() {
     return workingRaw?.scene?.type === "scope";
 }
 
+// Boot traces keep the canonical three-phase look: pure primaries, no
+// channel binding (a pure primary renders identically bound or unbound —
+// channel binding is an opt-in PenTile experiment, not the default idea
+// of "color"). Traces added later cycle a curated non-RGB palette.
+const TRACE_PALETTE = ["#ffb454", "#4fd6e0", "#b48cff", "#ff8ac2", "#7fe0b0", "#e8e8ee"];
+
+function traceDefaults(extra) {
+    return {
+        type: "trace", waveform: "sine", amplitude: 0.35, frequency: 2,
+        offset: 0.5, sweepSpeed: 4, thickness: 0.02, enabled: true, ...extra
+    };
+}
+
 function defaultTrace(i) {
-    // The canonical three-phase set: 120° apart, pure primaries.
     const presets = [
-        { name: "R", color: "#ff0000", channel: "r", phaseOffset: 0 },
-        { name: "G", color: "#00ff00", channel: "g", phaseOffset: -2 * Math.PI / 3 },
-        { name: "B", color: "#0000ff", channel: "b", phaseOffset: -4 * Math.PI / 3 }
+        { name: "R", color: "#ff0000", phaseOffset: 0 },
+        { name: "G", color: "#00ff00", phaseOffset: -2 * Math.PI / 3 },
+        { name: "B", color: "#0000ff", phaseOffset: -4 * Math.PI / 3 }
     ];
     const p = presets[i % 3];
-    return {
-        type: "trace", ...p,
-        waveform: "sine", amplitude: 0.35, frequency: 2,
-        offset: 0.5, sweepSpeed: 4, thickness: 0.02, enabled: true
-    };
+    return traceDefaults({ ...p });
+}
+
+function addedTrace(count) {
+    const len = TRACE_PALETTE.length;
+    const color = TRACE_PALETTE[((count - 3) % len + len) % len];
+    return traceDefaults({
+        name: `Trace ${count + 1}`,
+        color,
+        phaseOffset: -0.4 * count
+    });
 }
 
 function blankScopeScene() {
@@ -1822,6 +1855,28 @@ function traceChannelBadge(row) {
         return b;
     }
     return null;
+}
+
+/** 0..1 component of a hex color for one channel, or null when the value
+ *  isn't a hex string (e.g. expression-driven). */
+function colorComponent(color, ch) {
+    let h = typeof color === "string" ? color.trim() : "";
+    if (h[0] !== "#") return null;
+    h = h.slice(1);
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    if (!/^[0-9a-f]{6}$/i.test(h)) return null;
+    const i = ch === "r" ? 0 : ch === "g" ? 2 : 4;
+    return parseInt(h.slice(i, i + 2), 16) / 255;
+}
+
+/** Bound channel with (almost) no component in the trace color → the trace
+ *  would render invisible. Returns the channel letter for the warning. */
+function boundChannelMissing(row) {
+    const ch = row.channel;
+    if (ch !== "r" && ch !== "g" && ch !== "b") return null;
+    const v = colorComponent(row.color, ch);
+    if (v === null) return null;
+    return v < 0.06 ? ch.toUpperCase() : null;
 }
 
 /** Desmos-style: invented names in a custom expression become sliders —
@@ -1900,14 +1955,14 @@ function traceCard(row, index) {
     caret.textContent = "▸";
     card.addEventListener("toggle", () => { caret.textContent = card.open ? "▾" : "▸"; });
     caret.textContent = card.open ? "▾" : "▸";
-    const swatch = document.createElement("input");
-    swatch.type = "color"; swatch.className = "trace-swatch";
-    swatch.value = chanToHex(row.color);
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "trace-swatch";
     swatch.title = "Trace color";
-    swatch.addEventListener("click", e => e.preventDefault());   // don't fold the card
-    swatch.addEventListener("input", () => {
-        row.color = swatch.value;
-        commitEdits();
+    swatch.setAttribute("aria-label", "Trace color");
+    attachColorPopover(swatch, {
+        get: () => chanToHex(row.color),
+        set: hex => { row.color = hex; commitEdits(); }
     });
     const name = document.createElement("input");
     name.type = "text"; name.className = "trace-name";
@@ -1974,6 +2029,38 @@ function traceCard(row, index) {
     more.appendChild(moreBtn);
     const moreBody = document.createElement("div");
     for (const k of ["phaseOffset", "thickness"]) moreBody.appendChild(traceKnob(row, k));
+
+    // Emitter channel: an explicit opt-in PenTile experiment. Unbound (None)
+    // traces render their full selected color; binding restricts the trace
+    // to one subpixel channel of the display.
+    const chWrap = document.createElement("label");
+    chWrap.className = "field";
+    chWrap.innerHTML =
+        `Emitter channel <span class="hint">PenTile experiment: lights only that ` +
+        `subpixel channel. None = full selected color.</span>`;
+    const chSel = document.createElement("select");
+    for (const [val, label] of [["", "None"], ["r", "R"], ["g", "G"], ["b", "B"]]) {
+        const opt = document.createElement("option");
+        opt.value = val; opt.textContent = label;
+        chSel.appendChild(opt);
+    }
+    chSel.value = ["r", "g", "b"].includes(row.channel) ? row.channel : "";
+    chSel.addEventListener("change", () => {
+        if (chSel.value) row.channel = chSel.value;
+        else delete row.channel;
+        renderTraceWorkspace(true);
+        commitEdits();
+    });
+    chWrap.appendChild(chSel);
+    const missing = boundChannelMissing(row);
+    if (missing) {
+        const warn = document.createElement("div");
+        warn.className = "ch-warn";
+        warn.textContent =
+            `This trace's color has no ${missing} — it will render nearly invisible.`;
+        chWrap.appendChild(warn);
+    }
+    moreBody.appendChild(chWrap);
     if (row.waveform === "custom") {
         const f = document.createElement("label");
         f.className = "field";
@@ -2018,17 +2105,25 @@ function appendBackgroundCard(tbody, rows) {
     } else {
         const bg = rows[idx];
         const isColor = bg.type === "color";
-        const sw = document.createElement("input");
-        sw.type = "color"; sw.className = "trace-swatch";
-        sw.value = toHex(bg.color) || "#000000";
+        const sw = document.createElement("button");
+        sw.type = "button";
+        sw.className = "trace-swatch";
         sw.title = "Background color";
-        sw.addEventListener("input", () => { bg.color = sw.value; commitEdits(); });
+        sw.setAttribute("aria-label", "Background color");
+        if (isColor) {
+            attachColorPopover(sw, {
+                get: () => toHex(bg.color) || "#000000",
+                set: hex => { bg.color = hex; commitEdits(); }
+            });
+        } else {
+            sw.disabled = true;
+            sw.style.background = toHex(bg.color) || "#000000";
+        }
         const note = document.createElement("span");
         note.className = "bg-note";
         note.textContent = isColor
             ? "Background"
             : `Background (${bg.type}) — edit in Advanced → Math`;
-        if (!isColor) sw.disabled = true;
         const del = document.createElement("button");
         del.className = "secondary trace-del"; del.textContent = "✕";
         del.title = "Remove background";
@@ -2208,7 +2303,7 @@ function renderTraceWorkspace(force = false) {
     addT.textContent = "+ Add trace";
     addT.addEventListener("click", () => {
         const n = rows.filter(r => r && r.type === "trace").length;
-        workingRaw.scene.rows.push(defaultTrace(n));
+        workingRaw.scene.rows.push(addedTrace(n));
         renderTraceWorkspace(true);
         commitEdits();
     });
@@ -2359,7 +2454,7 @@ async function initGallery() {
 
     for (const name of GALLERY) {
         try {
-            const res = await fetch(`../scenes/${name}.amo`, { method: "HEAD" });
+            const res = await fetch(`/scenes/${name}.amo`, { method: "HEAD" });
             if (!res.ok) continue;
         } catch { continue; }
         const btn = document.createElement("button");
@@ -2367,7 +2462,7 @@ async function initGallery() {
         btn.textContent = GALLERY_LABELS[name] || name;
         btn.addEventListener("click", async () => {
             try {
-                const res = await fetch(`../scenes/${name}.amo`);
+                const res = await fetch(`/scenes/${name}.amo`);
                 workingRaw = JSON.parse(await res.text());
                 parseAmo(workingRaw, location.href);
                 selected = isComposite()

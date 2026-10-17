@@ -1,3 +1,6 @@
+/* Simulator page (/sim/) — control drawer over the live render.
+   Palette/type come from styles/theme.css. */
+
 * {
     box-sizing: border-box;
     margin: 0;
@@ -10,7 +13,7 @@ body {
     height: 100%;
     background: #000000;
     overflow: hidden;
-    font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+    font-family: var(--ui-font);
 }
 
 body {
@@ -38,10 +41,10 @@ body {
     z-index: 30;
     width: 32px;
     height: 32px;
-    border-radius: 6px;
-    background: rgba(0, 0, 0, 0.85);
-    border: 1px solid #444;
-    color: #ccc;
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--bg) 85%, transparent);
+    border: 1px solid var(--line);
+    color: var(--dim);
     font-size: 16px;
     cursor: pointer;
     display: flex;
@@ -53,14 +56,20 @@ body {
 }
 
 @keyframes pulse-hint {
-    0%, 100% { border-color: #444; box-shadow: 0 0 0 0 rgba(100, 200, 100, 0); }
-    50% { border-color: #8a8; box-shadow: 0 0 12px 2px rgba(100, 200, 100, 0.3); }
+    0%, 100% {
+        border-color: var(--line);
+        box-shadow: 0 0 0 0 transparent;
+    }
+    50% {
+        border-color: var(--accent-line);
+        box-shadow: 0 0 12px 2px color-mix(in oklab, var(--accent) 28%, transparent);
+    }
 }
 
 #panel-toggle:hover {
-    background: rgba(30, 30, 30, 0.9);
-    color: #ddd;
-    border-color: #555;
+    background: color-mix(in oklab, var(--panel) 90%, transparent);
+    color: var(--txt);
+    border-color: var(--faint);
 }
 
 #panel-toggle.open {
@@ -74,9 +83,9 @@ body {
     z-index: 20;
     width: 260px;
     height: 100vh;
-    background: rgba(8, 8, 10, 0.92);
-    border-right: 1px solid #1a1a1a;
-    color: #bbb;
+    background: color-mix(in oklab, var(--bg) 92%, transparent);
+    border-right: 1px solid var(--line-soft);
+    color: var(--txt);
     font-size: 11px;
     line-height: 1.3;
     overflow-y: auto;
@@ -101,8 +110,12 @@ body {
 }
 
 #sim-ui::-webkit-scrollbar-thumb {
-    background: #333;
+    background: var(--line);
     border-radius: 2px;
+}
+
+#sim-ui::-webkit-scrollbar-thumb:hover {
+    background: var(--faint);
 }
 
 .panel-inner {
@@ -113,14 +126,39 @@ body {
     flex: 1;
 }
 
+.panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 0 0 6px;
+}
+
+.panel-head a {
+    color: var(--faint);
+    font-family: var(--mono-font);
+    font-size: 10px;
+    letter-spacing: .04em;
+    text-decoration: none;
+    transition: color 0.15s;
+}
+
+.panel-head a:hover {
+    color: var(--dim);
+}
+
+.panel-head i {
+    color: var(--accent);
+    font-style: normal;
+}
+
 .section-header {
-    color: #666;
+    color: var(--faint);
     font-size: 9px;
     font-weight: 600;
     letter-spacing: 1.5px;
     text-transform: uppercase;
     padding: 10px 0 4px;
-    border-bottom: 1px solid #1a1a1a;
+    border-bottom: 1px solid var(--line-soft);
     cursor: pointer;
     user-select: none;
     display: flex;
@@ -129,7 +167,7 @@ body {
 }
 
 .section-header:hover {
-    color: #999;
+    color: var(--dim);
 }
 
 .section-header .arrow {
@@ -166,7 +204,7 @@ body {
 }
 
 .row label {
-    color: #777;
+    color: var(--dim);
     font-size: 11px;
     white-space: nowrap;
 }
@@ -175,9 +213,9 @@ body {
 .row input[type="text"],
 .row input[type="number"] {
     width: 100%;
-    background: #0c0c0c;
-    color: #ccc;
-    border: 1px solid #222;
+    background: var(--bg);
+    color: var(--txt);
+    border: 1px solid var(--line);
     border-radius: 4px;
     padding: 4px 6px;
     font: inherit;
@@ -188,11 +226,16 @@ body {
 
 .row select:focus,
 .row input:focus {
-    border-color: #444;
+    border-color: var(--accent-line);
 }
 
 .row select {
     cursor: pointer;
+}
+
+#fps-input,
+#pixel-scale-input {
+    font-family: var(--mono-font);
 }
 
 .slider-row {
@@ -203,7 +246,7 @@ body {
 }
 
 .slider-row label {
-    color: #777;
+    color: var(--dim);
     font-size: 11px;
     white-space: nowrap;
 }
@@ -213,7 +256,7 @@ body {
     appearance: none;
     width: 100%;
     height: 4px;
-    background: #222;
+    background: var(--line);
     border-radius: 2px;
     outline: none;
 }
@@ -224,29 +267,30 @@ body {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #666;
+    background: var(--accent);
     cursor: pointer;
     border: none;
-    transition: background 0.15s;
+    transition: background 0.15s, box-shadow 0.15s;
 }
 
 .slider-row input[type="range"]::-webkit-slider-thumb:hover {
-    background: #999;
+    box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .slider-row input[type="range"]::-moz-range-thumb {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #666;
+    background: var(--accent);
     cursor: pointer;
     border: none;
 }
 
 .slider-val {
-    color: #999;
+    color: var(--dim);
     font-size: 10px;
     text-align: right;
+    font-family: var(--mono-font);
     font-variant-numeric: tabular-nums;
 }
 
@@ -258,9 +302,9 @@ body {
 }
 
 button {
-    background: #111;
-    color: #bbb;
-    border: 1px solid #282828;
+    background: var(--panel-2);
+    color: var(--dim);
+    border: 1px solid var(--line);
     border-radius: 4px;
     padding: 5px 8px;
     font: inherit;
@@ -271,32 +315,33 @@ button {
 }
 
 button:hover {
-    background: #1a1a1a;
-    color: #ddd;
-    border-color: #444;
+    color: var(--txt);
+    border-color: var(--faint);
 }
 
 button:active {
-    background: #222;
+    background: var(--line-soft);
 }
 
 button.primary {
-    background: #1a2a1a;
-    border-color: #2a4a2a;
-    color: #8c8;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
 }
 
 button.primary:hover {
-    background: #223322;
-    color: #afa;
+    background: color-mix(in oklab, var(--accent) 85%, white);
+    border-color: color-mix(in oklab, var(--accent) 85%, white);
+    color: var(--accent-ink);
 }
 
 .upload-area {
-    border: 1px dashed #333;
+    border: 1px dashed var(--line);
     border-radius: 6px;
     padding: 12px;
     text-align: center;
-    color: #555;
+    color: var(--faint);
     cursor: pointer;
     transition: all 0.15s;
     font-size: 10px;
@@ -304,37 +349,45 @@ button.primary:hover {
 }
 
 .upload-area:hover {
-    border-color: #555;
-    color: #888;
-    background: rgba(255,255,255,0.02);
+    border-color: var(--faint);
+    color: var(--dim);
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .upload-area.dragover {
-    border-color: #8a8;
-    color: #8c8;
-    background: rgba(100,200,100,0.05);
+    border-color: var(--accent-line);
+    color: var(--accent);
+    background: var(--accent-soft);
 }
 
 #file-upload-input {
     display: none;
 }
 
+#upload-status {
+    color: var(--faint);
+    font-size: 9px;
+    min-height: 14px;
+}
+
 #media-info {
-    color: #666;
+    color: var(--faint);
     font-size: 9px;
     padding: 2px 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-family: var(--mono-font);
 }
 
 #sim-status {
-    color: #555;
-    border-top: 1px solid #1a1a1a;
+    color: var(--faint);
+    border-top: 1px solid var(--line-soft);
     padding: 8px 12px;
     font-size: 9px;
     line-height: 1.5;
     white-space: pre;
+    font-family: var(--mono-font);
     flex-shrink: 0;
 }
 
@@ -345,9 +398,9 @@ button.primary:hover {
     gap: 6px;
     padding: 10px 12px;
     margin: 0 12px 12px;
-    border: 1px solid #222;
+    border: 1px solid var(--line-soft);
     border-radius: 6px;
-    color: #888;
+    color: var(--dim);
     font-size: 10px;
     text-decoration: none;
     transition: all 0.15s;
@@ -355,9 +408,14 @@ button.primary:hover {
 }
 
 .repo-link:hover {
-    color: #ccc;
-    border-color: #444;
+    color: var(--txt);
+    border-color: var(--faint);
     background: rgba(255, 255, 255, 0.03);
+}
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
 }
 
 @media (max-width: 500px) {

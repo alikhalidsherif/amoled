@@ -279,5 +279,50 @@ function redAt(buf, x, y, w = W) { return buf[(y * w + x) * 3]; }
     ok(Math.abs(colPeak - 12) <= 2, `parameter in custom expression works (peak ${colPeak} at x=W/12)`);
 }
 
+// 13. Unbound trace renders its full arbitrary color: amber #ffb454 must
+//     carry all three channels in the emitter ratio, not just R.
+{
+    const def = scopeDef([{ ...SINE, color: "#ffb454", waveform: "square" }]);
+    const buf = render(def, 0);
+    let best = { r: -1, rv: -1, g: 0, b: 0 };
+    for (let x = 0; x < W; x++) {
+        for (let y = 0; y < H; y++) {
+            const i = (y * W + x) * 3;
+            if (buf[i] > best.rv) { best = { r: i, rv: buf[i], g: buf[i + 1], b: buf[i + 2] }; }
+        }
+    }
+    const gRatio = best.g / best.rv, bRatio = best.b / best.rv;
+    ok(best.rv > 60, `amber trace is lit (peak R ${best.rv})`);
+    ok(Math.abs(gRatio - 180 / 255) < 0.05, `amber G/R ratio ${gRatio.toFixed(3)} ~ 0.706`);
+    ok(Math.abs(bRatio - 84 / 255) < 0.05, `amber B/R ratio ${bRatio.toFixed(3)} ~ 0.329`);
+}
+
+// 14. Channel binding: pure primaries render identically bound vs unbound;
+//     binding a trace to a channel its color lacks produces nothing.
+{
+    const unbound = render(scopeDef([{ ...SINE, color: "#ff0000" }]), 0);
+    const bound = render(scopeDef([{ ...SINE, color: "#ff0000", channel: "r" }]), 0);
+    let maxDiff = 0;
+    for (let i = 0; i < unbound.length; i++) {
+        maxDiff = Math.max(maxDiff, Math.abs(unbound[i] - bound[i]));
+    }
+    ok(maxDiff === 0, `unbound red === bound-r red (maxDiff ${maxDiff})`);
+
+    const empty = render(scopeDef([{ ...SINE, color: "#ff0000", channel: "g" }]), 0);
+    let maxEmpty = 0;
+    for (let i = 0; i < empty.length; i++) maxEmpty = Math.max(maxEmpty, empty[i]);
+    ok(maxEmpty === 0, "red trace bound to G renders nothing");
+
+    const amberBoundB = render(scopeDef([{ ...SINE, color: "#ffb454", channel: "b" }]), 0);
+    let amberMax = { r: 0, g: 0, b: 0 };
+    for (let i = 0; i < amberBoundB.length; i += 3) {
+        amberMax.r = Math.max(amberMax.r, amberBoundB[i]);
+        amberMax.g = Math.max(amberMax.g, amberBoundB[i + 1]);
+        amberMax.b = Math.max(amberMax.b, amberBoundB[i + 2]);
+    }
+    ok(amberMax.r === 0 && amberMax.g === 0 && amberMax.b > 0,
+        `amber bound to B lights only B (R${amberMax.r} G${amberMax.g} B${amberMax.b})`);
+}
+
 console.log(`scope-raster: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

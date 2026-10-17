@@ -55,7 +55,7 @@ function serve() {
     });
     page.on("pageerror", (err) => errors.push("pageerror: " + err.message));
 
-    await page.goto("http://127.0.0.1:" + port + "/", {
+    await page.goto("http://127.0.0.1:" + port + "/sim/index.html", {
         waitUntil: "domcontentloaded",
         timeout: 60000
     });

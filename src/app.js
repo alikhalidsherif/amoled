@@ -108,7 +108,7 @@ import AMOLEDPlayer from "./player/amoplayer.js";
 
     function getDefaultImage() {
         const isPortrait = window.innerHeight > window.innerWidth;
-        return isPortrait ? "assets/test-portrait.gif" : "assets/test-landscape.gif";
+        return isPortrait ? "/assets/test-portrait.gif" : "/assets/test-landscape.gif";
     }
 
     let currentMode = "test-pattern";
@@ -223,7 +223,7 @@ import AMOLEDPlayer from "./player/amoplayer.js";
     async function handleFileUpload(file) {
         if (!ui.uploadStatus) return;
         ui.uploadStatus.textContent = "loading " + file.name + "...";
-        ui.uploadStatus.style.color = "#888";
+        ui.uploadStatus.style.color = "var(--faint)";
 
         try {
             await loader.load(file);
@@ -255,18 +255,18 @@ import AMOLEDPlayer from "./player/amoplayer.js";
             }
 
             ui.uploadStatus.textContent = "loaded: " + file.name;
-            ui.uploadStatus.style.color = "#8c8";
+            ui.uploadStatus.style.color = "var(--accent)";
             updateStatus("media");
         } catch (err) {
             ui.uploadStatus.textContent = "error: " + err.message;
-            ui.uploadStatus.style.color = "#c66";
+            ui.uploadStatus.style.color = "var(--err)";
         }
     }
 
     async function handleUrlLoad(url) {
         if (!ui.uploadStatus) return;
         ui.uploadStatus.textContent = "loading...";
-        ui.uploadStatus.style.color = "#888";
+        ui.uploadStatus.style.color = "var(--faint)";
 
         try {
             await loader.load(url);
@@ -295,11 +295,11 @@ import AMOLEDPlayer from "./player/amoplayer.js";
             }
 
             ui.uploadStatus.textContent = "loaded";
-            ui.uploadStatus.style.color = "#8c8";
+            ui.uploadStatus.style.color = "var(--accent)";
             updateStatus("media");
         } catch (err) {
             ui.uploadStatus.textContent = "error: " + err.message;
-            ui.uploadStatus.style.color = "#c66";
+            ui.uploadStatus.style.color = "var(--err)";
         }
     }
 
@@ -536,7 +536,8 @@ import AMOLEDPlayer from "./player/amoplayer.js";
     // INVARIANT: exactly ONE owner of the renderer instance. When a scene
     // is requested via ?scene=, the player drives the renderer and the
     // legacy demo media loop never starts.
-    const sceneParam = new URLSearchParams(location.search).get("scene");
+    let sceneParam = new URLSearchParams(location.search).get("scene");
+    if (sceneParam && !/^([a-z]+:)?\//i.test(sceneParam)) sceneParam = "/" + sceneParam;
     if (sceneParam) {
         const player = new AMOLEDPlayer({
             renderer: sim,

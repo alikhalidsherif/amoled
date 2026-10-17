@@ -8,7 +8,7 @@ const ROOT = "/home/ali/dev/amoled-client";
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".amo": "application/octet-stream", ".gif": "image/gif" };
 const server = http.createServer((req, res) => {
     const urlPath = decodeURIComponent(req.url.split("?")[0]);
-    const f = path.join(ROOT, urlPath === "/" ? "/generator/index.html" : urlPath);
+    const f = path.join(ROOT, urlPath === "/" ? "/gen/index.html" : urlPath);
     if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { "Content-Type": MIME[path.extname(f)] || "application/octet-stream" });
     fs.createReadStream(f).pipe(res);
@@ -33,7 +33,7 @@ const fail = m => { failures++; console.log("FAIL:", m); };
 page.on("pageerror", e => fail("PAGEERROR: " + e.message));
 // headless throttles timers heavily
 
-await page.goto(`http://127.0.0.1:${server.address().port}/generator/index.html`, { waitUntil: "domcontentloaded", timeout: 60000 });
+await page.goto(`http://127.0.0.1:${server.address().port}/gen/index.html`, { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise(r => setTimeout(r, 3000));
 
 // boot: traces-first with the canonical three-phase scope
@@ -107,7 +107,7 @@ if (!errState.status.includes("invalid JSON")) fail("invalid JSON not reported")
 if (errState.stillComposite !== "composite") fail("invalid edit clobbered state");
 
 // reload fresh -> scrub determinism on animated composite
-await page.goto(`http://127.0.0.1:${server.address().port}/generator/index.html`, { waitUntil: "domcontentloaded" });
+await page.goto(`http://127.0.0.1:${server.address().port}/gen/index.html`, { waitUntil: "domcontentloaded" });
 await new Promise(r => setTimeout(r, 3500));
 if (!await page.evaluate(() => !!window.__gplayerRef())) throw new Error("studio did not boot");
 await page.evaluate(() => window.__gplayerRef().pause());

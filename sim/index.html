@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Diamond PenTile AMOLED Simulator — Subpixel Display Visualizer</title>
+    <meta name="description" content="A pure client-side Diamond PenTile AMOLED subpixel lattice simulator. Visualize true emitter geometry with animated GIF, video, and image support. No backend required.">
+    <meta name="keywords" content="AMOLED, Diamond PenTile, display simulator, subpixel, OLED, screen technology, display analysis, pixel structure">
+    <meta name="author" content="Ali Khalid Sherif">
+    <meta name="theme-color" content="#000000">
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/svg+xml" href="/assets/icons/icon.svg">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/icon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/icon-32x32.png">
+    <link rel="icon" type="image/png" sizes="48x48" href="/assets/icons/icon-48x48.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/assets/icons/manifest.json">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://px.ali.et/sim/">
+    <meta property="og:title" content="Diamond PenTile AMOLED Simulator">
+    <meta property="og:description" content="Visualize true Diamond PenTile subpixel geometry. Animated GIF, video, and image support. Pure client-side, zero backend.">
+    <meta property="og:image" content="https://px.ali.et/assets/icons/og-preview.png">
+    <meta property="og:image:width" content="512">
+    <meta property="og:image:height" content="512">
+    <meta property="og:image:alt" content="Diamond PenTile AMOLED subpixel lattice simulation">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Diamond PenTile AMOLED Simulator">
+    <meta name="twitter:description" content="Visualize true Diamond PenTile subpixel geometry. Animated GIF, video, and image support. Pure client-side, zero backend.">
+    <meta name="twitter:image" content="https://px.ali.et/assets/icons/og-preview.png">
+    <meta name="twitter:image:alt" content="Diamond PenTile AMOLED subpixel lattice simulation">
+
+    <!-- Canonical -->
+    <link rel="canonical" href="https://px.ali.et/sim/">
+
+    <link rel="stylesheet" href="../styles/theme.css">
+    <link rel="stylesheet" href="../styles/demo.css">
+</head>
+<body>
+    <div id="display-shell">
+        <canvas id="display"></canvas>
+    </div>
+
+    <button id="panel-toggle" title="Toggle controls">&#9776;</button>
+
+    <div id="sim-ui">
+        <div class="panel-inner">
+            <div class="panel-head">
+                <a href="/"><i>.amo</i></a>
+                <a href="/gen/">studio</a>
+            </div>
+            <div class="section-header" data-section="display">
+                <span class="arrow">&#9660;</span> Display
+            </div>
+            <div class="section-body" data-section="display">
+                <div class="row">
+                    <label for="fps-input">FPS</label>
+                    <input id="fps-input" type="number" min="1" max="60" step="1" value="24">
+                </div>
+                <div class="row">
+                    <label for="scale-mode">Scale</label>
+                    <select id="scale-mode">
+                        <option value="auto" selected>Auto density</option>
+                        <option value="manual">Manual pitch</option>
+                    </select>
+                </div>
+                <div class="row" id="manual-scale-row" style="display: none;">
+                    <label for="pixel-scale-input">Pitch</label>
+                    <input id="pixel-scale-input" type="number" min="1" max="24" step="0.25" value="8">
+                </div>
+                <div class="row">
+                    <label for="supersample-select">Supersample</label>
+                    <select id="supersample-select">
+                        <option value="1" selected>1x (fast)</option>
+                        <option value="2">2x (recommended)</option>
+                        <option value="3">3x</option>
+                        <option value="4">4x (heavy)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="section-header" data-section="brightness">
+                <span class="arrow">&#9660;</span> Brightness
+            </div>
+            <div class="section-body" data-section="brightness">
+                <div class="slider-row">
+                    <label for="active-brightness">Active</label>
+                    <input id="active-brightness" type="range" min="0" max="100" step="1" value="100">
+                    <span class="slider-val" id="active-brightness-val">100%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="inactive-brightness">Off-pixel</label>
+                    <input id="inactive-brightness" type="range" min="0" max="50" step="1" value="4">
+                    <span class="slider-val" id="inactive-brightness-val">4%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="bloom-slider">Bloom</label>
+                    <input id="bloom-slider" type="range" min="0" max="100" step="1" value="0">
+                    <span class="slider-val" id="bloom-slider-val">0%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="gamma-slider">Emitter &gamma;</label>
+                    <input id="gamma-slider" type="range" min="10" max="26" step="1" value="18">
+                    <span class="slider-val" id="gamma-slider-val">1.8</span>
+                </div>
+                <div class="slider-row">
+                    <label for="spill-slider">Optical spill</label>
+                    <input id="spill-slider" type="range" min="0" max="60" step="1" value="40">
+                    <span class="slider-val" id="spill-slider-val">40%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="spread-r">R spread &sigma;</label>
+                    <input id="spread-r" type="range" min="15" max="100" step="5" value="55">
+                    <span class="slider-val" id="spread-r-val">0.55</span>
+                </div>
+                <div class="slider-row">
+                    <label for="spread-g">G spread &sigma;</label>
+                    <input id="spread-g" type="range" min="15" max="100" step="5" value="35">
+                    <span class="slider-val" id="spread-g-val">0.35</span>
+                </div>
+                <div class="slider-row">
+                    <label for="spread-b">B spread &sigma;</label>
+                    <input id="spread-b" type="range" min="15" max="100" step="5" value="65">
+                    <span class="slider-val" id="spread-b-val">0.65</span>
+                </div>
+                <div class="slider-row">
+                    <label for="bloom-threshold">Bloom floor</label>
+                    <input id="bloom-threshold" type="range" min="10" max="90" step="5" value="45">
+                    <span class="slider-val" id="bloom-threshold-val">45%</span>
+                </div>
+                <div class="slider-row">
+                    <label for="bloom-radius">Bloom radius</label>
+                    <input id="bloom-radius" type="range" min="2" max="30" step="1" value="16">
+                    <span class="slider-val" id="bloom-radius-val">16px</span>
+                </div>
+            </div>
+
+            <div class="section-header" data-section="media">
+                <span class="arrow">&#9660;</span> Media
+            </div>
+            <div class="section-body" data-section="media">
+                <div class="upload-area" id="upload-area">
+                    Drop image / GIF / video here<br>or click to browse
+                </div>
+                <input type="file" id="file-upload-input" accept="image/*,video/*">
+                <div id="upload-status"></div>
+                <div id="media-info"></div>
+            </div>
+
+            <div class="section-header" data-section="controls">
+                <span class="arrow">&#9660;</span> Controls
+            </div>
+            <div class="section-body" data-section="controls">
+                <div class="btn-row">
+                    <button id="test-pattern-btn" class="primary">Test Pattern</button>
+                    <button id="clear-btn">Clear Media</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="sim-status">starting...</div>
+
+        <a href="https://github.com/alikhalidsherif/amoled" target="_blank" rel="noopener" class="repo-link">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            View on GitHub
+        </a>
+    </div>
+
+    <script src="../src/gifuct.js"></script>
+    <script src="../src/engine/util.js"></script>
+    <script src="../src/engine/config.js"></script>
+    <script src="../src/engine/frame-buffer.js"></script>
+    <script src="../src/engine/diamond-pentile-geometry.js"></script>
+    <script src="../src/engine/amoled-renderer.js"></script>
+    <script src="../src/engine/amoled-gpu-renderer.js"></script>
+    <script src="../src/patterns.js"></script>
+    <script src="../src/media-loader.js"></script>
+    <script src="../src/hue-drift.js"></script>
+    <script type="module" src="../src/app.js"></script>
+</body>
+</html>

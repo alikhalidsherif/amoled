@@ -25,6 +25,8 @@ Built for display enthusiasts who want to see and manipulate actual subpixel str
 - **Canvas 2D fallback** — automatic when WebGL2 is unavailable
 - **Aspect-ratio preservation** — letterbox/pillarbox black padding for non-matching sources
 - **Auto-density scaling** — adapts to any screen size while keeping subpixels visible
+- **Landing page** — live butterfly attract animation rendered through the simulator, device-tier pitch, `prefers-reduced-motion` aware
+- **AMO Studio (`/gen`)** — trace-first `.amo` scene builder with a full color picker per trace; RGB channel binding stays a separate, opt-in PenTile experiment
 - **Modular architecture** — extract individual components for other projects
 
 ## Quick Start
@@ -33,19 +35,26 @@ Built for display enthusiasts who want to see and manipulate actual subpixel str
 
 ```bash
 docker compose up -d
-# Open http://localhost:8051
+# Landing:    http://localhost:8051/
+# Simulator:  http://localhost:8051/sim/
+# AMO Studio: http://localhost:8051/gen/
 ```
 
 ### Static Server
 
 ```bash
 python3 -m http.server 8080
-# Open http://localhost:8080
+# Landing:    http://localhost:8080/
+# Simulator:  http://localhost:8080/sim/
+# AMO Studio: http://localhost:8080/gen/
 ```
 
 ### Direct
 
-Open `index.html` in a browser.
+Open `index.html` for the landing page (`sim/index.html` for the simulator,
+`gen/index.html` for the studio). A local server is recommended — example
+`.amo` scenes and media assets need HTTP (the studio shows a banner under
+`file://`).
 
 ## Modular Components
 
@@ -162,13 +171,17 @@ and never touches art direction.
 
 ### Authoring
 
-The studio at `/generator/index.html` is **trace-first**: it boots into an
+The studio at `/gen/` is **trace-first**: it boots into an
 editable three-phase oscilloscope where a waveform is one card with simple
 controls — Height, Frequency, Position, Speed (plus Phase and Thickness under
-“More”). Raw per-pixel math, layers/blend modes, display design and the JSON
-source live in **Advanced**. The preview/editor split is draggable (persists
-across reloads; double-click resets), and the scope grid/center-line are
-studio-only overlays — never serialized, never rendered by the simulator.
+“More”). Every trace's color is a swatch button opening a popover (SV square,
+hue strip, hex field, presets); **Emitter channel** (None | R | G | B) stays a
+separate opt-in PenTile experiment under “More” with a warning when the bound
+channel is missing from the color. Raw per-pixel math, layers/blend modes,
+display design and the JSON source live in **Advanced**. The preview/editor
+split is draggable (persists across reloads; double-click resets), and the
+scope grid/center-line are studio-only overlays — never serialized, never
+rendered by the simulator.
 Advanced authoring also includes live preview through the real player,
 timeline scrubbing with frame stepping and speed control, motion presets
 (pulse/orbit/sway/flicker/hueDrift/… that expand to plain expressions),
@@ -250,11 +263,17 @@ src/
 │   ├── amoled-gpu-renderer.js  WebGL2 physical-emitter pipeline
 │   └── amoled-renderer.js      Canvas 2D fallback renderer
 ├── player/
+│   ├── amoplayer.js            .amo runtime player
 │   └── quality.js              Adaptive quality governor (ES module)
+├── scene/                      .amo parser, rasterizer, compositor, expressions
 ├── media-loader.js             GIF/image/video decoder
 ├── patterns.js                 Built-in test pattern
+├── attract.js                  Landing butterfly attract animation
+├── landing.js                  Landing boot (ES module)
+├── hue-drift.js                Stepped accent-hue rotation (theme.css)
+├── color-popover.js            Studio color-picker component
 ├── gifuct.js                   GIF decoder library (bundled)
-└── app.js                      Demo page wiring (ES module bootstrap)
+└── app.js                      Simulator boot (ES module)
 tests/
 ├── lattice-parity.js           Verifies shader lattice == CPU geometry
 └── browser/                    Headless Chrome smoke/regression harnesses
@@ -292,8 +311,8 @@ await player.load("/scenes/gradient.amo");
 player.play();
 ```
 
-- `?scene=<url>` on the demo page routes through the player instead of the
-  legacy media loop (single owner of the renderer).
+- `?scene=<url>` on the simulator page (`/sim/`) routes through the player
+  instead of the legacy media loop (single owner of the renderer).
 - Static scenes render exactly once — no rAF loop.
 - Logical resolution auto-matches display aspect; scenes are resolution-
   independent (normalized coordinates).
@@ -331,6 +350,7 @@ particular AMOLED panel — every parameter is exposed for tuning.
 - **Canvas 2D fallback**: all modern browsers
 - **GIF decode**: All browsers (gifuct-js is pure JavaScript)
 - **Video**: All browsers with `<video>` support
+- **Firefox**: desktop works (hardened against contexts requested with unsupported hints); mobile Firefox may not render WebGL reliably — use Chrome there.
 
 ## License
 

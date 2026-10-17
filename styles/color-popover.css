@@ -1,0 +1,74 @@
+/* Color popover — SV square + hue strip + hex + presets + system picker.
+   Trigger: any element passed to AMOLED.attachColorPopover; the module sets
+   its background to the current color, so triggers should be preset-shaped
+   (.trace-swatch etc.) with transparent CSS backgrounds. */
+
+.cp-panel {
+    position: fixed;
+    z-index: 80;
+    width: 236px;
+    box-sizing: border-box;
+    padding: 10px;
+    border-radius: 10px;
+    background: #17171b;
+    border: 1px solid #2c2c33;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .55);
+    user-select: none;
+}
+.cp-panel[hidden] { display: none; }
+
+.cp-sv {
+    position: relative;
+    width: 216px;
+    height: 130px;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: crosshair;
+    touch-action: none;
+}
+.cp-sv canvas { display: block; width: 100%; height: 100%; }
+.cp-sv-handle {
+    position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+    border-radius: 50%; border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.65), inset 0 0 0 1px rgba(0,0,0,.35);
+    pointer-events: none;
+}
+
+.cp-hue {
+    position: relative;
+    height: 14px;
+    margin-top: 8px;
+    border-radius: 7px;
+    overflow: hidden;
+    cursor: pointer;
+    touch-action: none;
+}
+.cp-hue canvas { display: block; width: 100%; height: 100%; }
+.cp-hue-handle {
+    position: absolute; top: -1px; bottom: -1px; width: 4px; margin-left: -2px;
+    border-radius: 2px; background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.6);
+    pointer-events: none;
+}
+
+.cp-row { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.cp-hex {
+    flex: 1; min-width: 0; height: 28px; min-height: 0; margin-top: 0;
+    padding: 4px 8px; border-radius: 6px;
+    background: #101013; border: 1px solid #2c2c33; color: var(--txt, #d6d6db);
+    font-family: var(--mono-font, monospace); font-size: 12px;
+}
+.cp-hex:focus { outline: none; border-color: var(--accent-line, #3a3a44); }
+.cp-hex.cp-invalid { border-color: var(--err, #e0777c); }
+.cp-native {
+    flex: none; width: 34px; height: 28px; min-height: 0; margin-top: 0; padding: 2px;
+    background: #101013; border: 1px solid #2c2c33; border-radius: 6px; cursor: pointer;
+}
+
+.cp-presets { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; margin-top: 8px; }
+.cp-preset {
+    width: 100%; height: 18px; padding: 0; min-height: 0;
+    border-radius: 5px; border: 1px solid rgba(255,255,255,.14);
+    cursor: pointer;
+}
+.cp-preset:hover { border-color: rgba(255,255,255,.45); }

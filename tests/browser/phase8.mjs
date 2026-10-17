@@ -22,7 +22,7 @@ page.on("console", m => { if (m.type() === "error") console.log("CONSOLE-ERR:", 
 
 const qualityEvents = [];
 page.exposeFunction("__logQuality", a => qualityEvents.push(a)).catch(()=>{});
-await page.goto(`http://127.0.0.1:${server.address().port}/?scene=scenes/rain.amo`, { waitUntil: "domcontentloaded", timeout: 60000 });
+await page.goto(`http://127.0.0.1:${server.address().port}/sim/index.html?scene=scenes/rain.amo`, { waitUntil: "domcontentloaded", timeout: 60000 });
 // attach listener after boot via player events? player already created; poll getActual instead.
 await new Promise(r => setTimeout(r, 2500));
 

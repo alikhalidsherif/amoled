@@ -32,7 +32,7 @@ async function waitForRender(maxMs = 25000) {
 }
 
 // --- static gradient scene ---
-await page.goto(`http://127.0.0.1:${port}/?scene=scenes/gradient.amo`, { waitUntil: "domcontentloaded", timeout: 60000 });
+await page.goto(`http://127.0.0.1:${port}/sim/index.html?scene=scenes/gradient.amo`, { waitUntil: "domcontentloaded", timeout: 60000 });
 if (!await waitForRender()) fail("no render completed");
 await new Promise(r => setTimeout(r, 800));
 

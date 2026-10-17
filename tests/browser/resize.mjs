@@ -22,7 +22,7 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 let failures = 0;
 page.on("pageerror", e => { failures++; console.log("PAGEERROR:", e.message); });
-await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: "domcontentloaded", timeout: 60000 });
+await page.goto(`http://127.0.0.1:${server.address().port}/sim/index.html`, { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise(r => setTimeout(r, 2500));
 
 // Simulate devtools docking: two rapid resizes, second slightly larger.

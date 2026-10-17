@@ -33,7 +33,7 @@ function fail(msg) { console.log("FAIL:", msg); process.exitCode = 1; }
     });
     const page = await browser.newPage();
     page.on("pageerror", e => console.log("pageerror:", e.message));
-    await page.goto("http://127.0.0.1:" + port + "/", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.goto("http://127.0.0.1:" + port + "/sim/index.html", { waitUntil: "domcontentloaded", timeout: 60000 });
 
     const energy = () => page.evaluate(() => {
         window.__pendingRender && window.__pendingRender();

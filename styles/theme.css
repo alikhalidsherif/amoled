@@ -1,0 +1,48 @@
+/* Shared design tokens — sim, studio, landing.
+   Monochrome near-black base, one drifting accent hue.
+   The accent cycles the color wheel in 180s so it passes through every
+   color evenly; pages must only use the accent for interactive/attention
+   states, never tint the neutral surfaces.
+
+   Drift is driven by src/hue-drift.js in ~2° steps once a second — a
+   continuous CSS animation of --h recalculates every accent-dependent
+   style at 60fps, which starves low-power devices (and headless
+   SwiftShader). One step per second is visually identical for a 3-minute
+   cycle and costs one style recalc per second. */
+
+@property --h {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 250;
+}
+
+:root {
+    color-scheme: dark;
+
+    --bg: #08080a;
+    --panel: #101013;
+    --panel-2: #16161a;
+    --line: #24242a;
+    --line-soft: #1b1b20;
+    --txt: #d6d6db;
+    --dim: #8e8e96;
+    --faint: #5c5c62;
+
+    --h: 250;
+    --hue-cycle: 180s;
+    --accent: oklch(65% 0.14 var(--h));
+    --accent-ink: #0a0a0c;
+    --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
+    --accent-line: color-mix(in oklab, var(--accent) 45%, var(--line));
+
+    --err: #e0777c;
+    --warn: #d9b96b;
+
+    --ui-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+    --mono-font: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+        "Liberation Mono", monospace;
+
+    --radius: 8px;
+    --radius-sm: 6px;
+}

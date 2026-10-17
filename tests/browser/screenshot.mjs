@@ -18,7 +18,7 @@ await new Promise(r => server.listen(0, "127.0.0.1", r));
 const sceneUrl = process.argv[3] || "/scenes/composite.amo";
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_BIN, args: ["--no-sandbox","--disable-gpu","--enable-unsafe-swiftshader"], defaultViewport: { width: 640, height: 400 } });
 const page = await browser.newPage();
-await page.goto(`http://127.0.0.1:${server.address().port}/?scene=${sceneUrl}`, { waitUntil: "domcontentloaded", timeout: 60000 });
+await page.goto(`http://127.0.0.1:${server.address().port}/sim/index.html?scene=${sceneUrl}`, { waitUntil: "domcontentloaded", timeout: 60000 });
 // deterministic static frame: force time-independent content by loading color.amo composite? Use gradient (static) for determinism.
 if (!process.argv[3]) {
     await page.evaluate(() => window.__player.load("/scenes/gradient.amo"));
