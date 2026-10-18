@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="../styles/color-popover.css">
 <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    :root { --ctl-h: 32px; --ctl-h-sm: 26px; }
     html, body { height: 100%; }
     body {
         margin: 0; background: var(--bg); color: var(--txt);
@@ -29,7 +30,8 @@
     #topbar .logo:hover { color: #fff; }
     #topbar input#f-name {
         background: transparent; border: 1px solid transparent; color: var(--txt);
-        padding: 3px 6px; min-width: 0; flex: 0 1 180px; border-radius: 5px;
+        padding: 2px 6px; min-width: 0; flex: 0 1 180px; border-radius: 5px;
+        min-height: var(--ctl-h-sm); height: var(--ctl-h-sm); margin-top: 0;
     }
     #topbar input#f-name:hover { border-color: var(--line); }
     #topbar input#f-name:focus { border-color: var(--accent-line); outline: none; }
@@ -38,18 +40,18 @@
     /* ---------- buttons ---------- */
     button {
         background: var(--panel-2); color: var(--txt); border: 1px solid var(--line);
-        padding: 7px 12px; font: inherit; cursor: pointer; border-radius: var(--radius-sm);
-        min-height: 34px;
+        padding: 4px 12px; font: inherit; cursor: pointer; border-radius: var(--radius-sm);
+        min-height: 30px;
         transition: background .12s ease, border-color .12s ease, color .12s ease;
     }
-    button:hover { background: #1d1d22; border-color: #34343c; }
-    button:active { background: #141418; }
+    button:hover { background: rgba(255,255,255,.04); border-color: color-mix(in oklab, var(--line) 55%, var(--txt)); }
+    button:active { background: rgba(0,0,0,.3); }
     button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
         outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent);
         outline-offset: 1px;
     }
     button.secondary { background: transparent; color: var(--dim); }
-    button.secondary:hover { background: rgba(255,255,255,.03); color: var(--txt); border-color: #34343c; }
+    button.secondary:hover { background: rgba(255,255,255,.04); color: var(--txt); border-color: color-mix(in oklab, var(--line) 55%, var(--txt)); }
     button.danger {
         background: transparent; color: var(--err);
         border-color: color-mix(in oklab, var(--err) 35%, var(--line));
@@ -104,20 +106,47 @@
     label.field .val { color: var(--txt); float: right; font-variant-numeric: tabular-nums; }
     input, select, textarea {
         width: 100%; background: var(--panel-2); color: var(--txt); border: 1px solid var(--line);
-        padding: 8px 9px; font: inherit; border-radius: var(--radius-sm); margin-top: 4px;
-        min-height: 38px;
+        padding: 4px 9px; font: inherit; border-radius: var(--radius-sm); margin-top: 3px;
+        min-height: var(--ctl-h);
         transition: border-color .12s ease, background .12s ease;
     }
-    input:hover, select:hover, textarea:hover { border-color: #303038; }
+    input:hover, select:hover, textarea:hover { border-color: color-mix(in oklab, var(--line) 55%, var(--txt)); }
     input:focus, select:focus, textarea:focus { border-color: var(--accent-line); outline: none; }
-    input[type="number"], .param-row input[type="text"] { font-family: var(--mono-font); }
+    input[type="number"], .param-row input[type="text"] { font-family: var(--mono-font); font-variant-numeric: tabular-nums; }
     textarea { resize: vertical; }
     textarea.source { min-height: 46vh; font-size: 12px; white-space: pre; tab-size: 2; font-family: var(--mono-font); }
     textarea.source.invalid { border-color: var(--err); }
     .row { display: flex; gap: 10px; }
     .row > label.field { flex: 1; }
-    input[type="color"] { padding: 2px; height: 40px; }
-    input[type="range"] { padding: 0; accent-color: var(--accent); min-height: 0; }
+    input[type="color"] { padding: 2px; height: 36px; }
+    input[type="range"] {
+        -webkit-appearance: none; appearance: none;
+        width: 100%; background: transparent; border: none; border-radius: 0;
+        padding: 0; margin-top: 0; min-height: 20px; height: 20px;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+        height: 3px; border-radius: 2px;
+        background: color-mix(in oklab, var(--line) 75%, var(--txt));
+    }
+    input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+        background: var(--accent); border: none; margin-top: -4.5px;
+    }
+    input[type="range"]::-moz-range-track {
+        height: 3px; border-radius: 2px;
+        background: color-mix(in oklab, var(--line) 75%, var(--txt));
+    }
+    input[type="range"]::-moz-range-thumb {
+        width: 12px; height: 12px; border: none; border-radius: 50%;
+        background: var(--accent);
+    }
+    input[type="range"]:focus-visible { outline: none; }
+    input[type="range"]:focus-visible::-webkit-slider-thumb {
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 45%, transparent);
+    }
+    input[type="range"]:focus-visible::-moz-range-thumb {
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 45%, transparent);
+    }
     .hint { color: var(--faint); font-size: 11px; margin-top: 4px; }
     .expr-badge {
         font-size: 9px; color: var(--warn); border: 1px solid #443315;
@@ -128,11 +157,11 @@
     .expr-wrap { position: relative; margin-top: 4px; font-family: var(--mono-font); }
     .expr-hl {
         position: absolute; inset: 0; z-index: 1; margin: 0;
-        font: 13px/1.5 var(--mono-font);
-        padding: 8px 9px; border: 1px solid transparent; border-radius: var(--radius-sm);
+        font: 13px/1.45 var(--mono-font);
+        padding: 4px 9px; border: 1px solid transparent; border-radius: var(--radius-sm);
         white-space: pre-wrap; word-break: break-word; overflow: hidden;
         color: #b9b9c2; pointer-events: none; background: var(--panel-2);
-        min-height: 38px;
+        min-height: var(--ctl-h);
     }
     .expr-wrap textarea {
         position: relative; z-index: 2; background: transparent;
@@ -154,7 +183,7 @@
 
     .ac-menu {
         position: absolute; z-index: 40; left: 0; right: 0;
-        background: #141418; border: 1px solid var(--line); border-radius: 5px;
+        background: var(--panel); border: 1px solid var(--line); border-radius: 5px;
         max-height: 190px; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,.5);
     }
     .ac-item { padding: 6px 10px; cursor: pointer; font-size: 12px; font-family: var(--mono-font); }
@@ -163,12 +192,15 @@
 
     /* ---------- parameter rows ---------- */
     .param-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
-    .param-row input[type="text"] { width: 110px; flex: none; margin-top: 0; }
+    .param-row input[type="text"] { width: 110px; flex: none; margin-top: 0;
+        min-height: var(--ctl-h-sm); height: var(--ctl-h-sm); padding: 2px 8px; }
     .param-row input[type="range"] { flex: 1; min-width: 90px; margin-top: 0; }
-    .param-row .pval { width: 70px; flex: none; text-align: right; margin-top: 0; font-family: var(--mono-font); }
-    .param-row .pbound { width: 58px; flex: none; padding: 6px 4px; font-size: 11px; margin-top: 0; }
-    .param-row .pdel { flex: none; width: 40px; padding: 6px 0; }
-    .param-row .pplay { flex: none; min-height: 0; padding: 6px 9px; }
+    .param-row .pval { width: 70px; flex: none; text-align: right; margin-top: 0; font-family: var(--mono-font);
+        min-height: var(--ctl-h-sm); height: var(--ctl-h-sm); padding: 2px 8px; }
+    .param-row .pbound { width: 58px; flex: none; padding: 2px 4px; font-size: 11px; margin-top: 0;
+        min-height: var(--ctl-h-sm); height: var(--ctl-h-sm); }
+    .param-row .pdel { flex: none; width: 40px; padding: 2px 0; min-height: var(--ctl-h-sm); height: var(--ctl-h-sm); }
+    .param-row .pplay { flex: none; padding: 2px 9px; min-height: var(--ctl-h-sm); height: var(--ctl-h-sm); }
 
     /* ---------- pixel inspector ---------- */
     #inspector {
@@ -188,7 +220,7 @@
         padding: 10px 12px; cursor: pointer;
         transition: border-color .12s ease, background .12s ease;
     }
-    .layer-chip:hover { border-color: #34343c; }
+    .layer-chip:hover { border-color: color-mix(in oklab, var(--line) 55%, var(--txt)); }
     .layer-chip.selected { border-color: var(--accent); background: var(--accent-soft); }
     .layer-chip.error { border-color: var(--err); }
     .layer-chip .l-type { color: var(--accent); font-weight: 600; }
@@ -197,9 +229,30 @@
     .layer-chip .l-order {
         color: var(--dim); font-size: 10px; font-weight: 600;
         font-family: var(--mono-font);
-        background: #24242b; border-radius: 4px; padding: 1px 6px;
+        background: color-mix(in oklab, var(--line) 70%, var(--txt)); border-radius: 4px; padding: 1px 6px;
     }
     .layer-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+    /* ---------- add-layer type picker ---------- */
+    #type-picker {
+        position: fixed; inset: 0; z-index: 50;
+        background: rgba(0, 0, 0, .72);
+        display: flex; align-items: center; justify-content: center;
+        padding: 16px;
+    }
+    #type-picker .tp-card {
+        background: var(--panel); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 14px;
+        max-width: 420px; width: 100%; max-height: 80vh; overflow-y: auto;
+    }
+    #type-picker .tp-card h2 { margin-top: 0; }
+    #type-picker .tp-btn {
+        display: block; width: 100%; text-align: left; margin-top: 6px;
+    }
+    #type-picker .tp-desc {
+        display: block; color: var(--faint); font-size: 11px; font-weight: 400;
+    }
+    #type-picker .tp-cancel { width: 100%; margin-top: 10px; }
 
     /* ---------- math sheet (Desmos mode) ---------- */
     .math-card {
@@ -211,14 +264,16 @@
         flex: 1; color: var(--dim); font-size: 10px;
         text-transform: uppercase; letter-spacing: .09em;
     }
-    .math-head select { width: auto; min-height: 0; padding: 4px 6px; margin-top: 0; }
-    .math-head button { min-height: 0; padding: 4px 9px; }
+    .math-head select { width: auto; min-height: var(--ctl-h-sm); height: var(--ctl-h-sm);
+        padding: 2px 6px; margin-top: 0; }
+    .math-head button { min-height: var(--ctl-h-sm); height: var(--ctl-h-sm); padding: 2px 9px; }
     .ch-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; }
     .ch-row label.field { flex: 1; margin-top: 0; min-width: 0; }
     .ch-row .expr-wrap { margin-top: 0; }
     .ch-badge {
-        display: inline-block; width: 24px; text-align: center; font-weight: 700;
-        border-radius: 5px; padding: 8px 0; margin-top: 4px; flex: none;
+        display: flex; align-items: center; justify-content: center;
+        width: 24px; text-align: center; font-weight: 700;
+        border-radius: 5px; height: var(--ctl-h); margin-top: 3px; flex: none;
         font-size: 12px;
     }
     .ch-r { background: #2b1417; color: #ff9d9d; }
@@ -228,6 +283,13 @@
         border: 1px dashed var(--line); border-radius: var(--radius);
         padding: 18px; text-align: center; color: var(--dim); margin-top: 10px;
     }
+    .shapes-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 0 6px; }
+    .shapes-row .shapes-label {
+        color: var(--faint); font-size: 10px; text-transform: uppercase;
+        letter-spacing: .09em; margin-right: 2px;
+    }
+    #math-shapes { display: flex; gap: 6px; flex-wrap: wrap; }
+    #math-shapes button { min-height: var(--ctl-h-sm); padding: 2px 10px; font-size: 12px; }
 
     /* ---------- primary workspace (Traces) ---------- */
     .ws-section {
@@ -257,7 +319,8 @@
     .trace-card.closed .trace-body { display: none; }
     .trace-caret { color: var(--faint); flex: none; }
     .trace-swatch {
-        width: 26px; height: 26px; border-radius: var(--radius-sm); border: 1px solid #303038;
+        width: 26px; height: 26px; border-radius: var(--radius-sm);
+        border: 1px solid color-mix(in oklab, var(--line) 55%, var(--txt));
         padding: 0; background: none; flex: none; cursor: pointer;
         min-height: 0; margin-top: 0;
     }
@@ -268,12 +331,13 @@
     }
     .trace-name {
         background: transparent; border: 1px solid transparent; color: var(--txt);
-        padding: 3px 6px; border-radius: 5px; min-width: 0; flex: 0 1 110px;
-        margin-top: 0; min-height: 0; font-weight: 600;
+        padding: 2px 6px; border-radius: 5px; min-width: 0; flex: 0 1 110px;
+        margin-top: 0; min-height: var(--ctl-h-sm); height: var(--ctl-h-sm); font-weight: 600;
     }
     .trace-name:hover { border-color: var(--line); }
     .trace-name:focus { border-color: var(--accent-line); outline: none; }
-    .trace-head select { width: auto; min-height: 0; padding: 4px 6px; margin-top: 0; flex: none; }
+    .trace-head select { width: auto; min-height: var(--ctl-h-sm); height: var(--ctl-h-sm);
+        padding: 2px 6px; margin-top: 0; flex: none; }
     .trace-enable { flex: none; accent-color: var(--accent); width: 16px; height: 16px; margin-top: 0; }
     .trace-del { flex: none; min-height: 0; padding: 4px 8px; }
     .trace-body { padding: 2px 10px 10px; border-top: 1px solid var(--line-soft); }
@@ -281,8 +345,8 @@
     .knob > label { width: 80px; flex: none; color: var(--dim); font-size: 12px; cursor: help; }
     .knob input[type="range"] { flex: 1; min-width: 60px; }
     .knob .knum {
-        width: 64px; flex: none; padding: 5px 6px; font-size: 12px;
-        margin-top: 0; min-height: 0; text-align: right;
+        width: 64px; flex: none; padding: 2px 6px; font-size: 12px;
+        margin-top: 0; min-height: var(--ctl-h-sm); height: var(--ctl-h-sm); text-align: right;
         font-family: var(--mono-font);
     }
     .more-btn {
@@ -313,7 +377,7 @@
         flex: none; background: transparent; color: var(--dim);
         border: 1px solid var(--line); min-height: 0; padding: 6px 12px;
     }
-    #adv-strip button:hover { color: var(--txt); border-color: #34343c; background: transparent; }
+    #adv-strip button:hover { color: var(--txt); border-color: color-mix(in oklab, var(--line) 55%, var(--txt)); background: transparent; }
     #adv-strip button.active { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
     #advanced-shell .tabpane { padding: 0; max-width: none; }
 
@@ -390,8 +454,11 @@
     /* ---------- scrollbars ---------- */
     ::-webkit-scrollbar { width: 10px; height: 10px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #2a2a31; border-radius: 5px; border: 2px solid var(--bg); }
-    ::-webkit-scrollbar-thumb:hover { background: #36363e; }
+    ::-webkit-scrollbar-thumb {
+        background: color-mix(in oklab, var(--line) 70%, var(--txt));
+        border-radius: 5px; border: 2px solid var(--bg);
+    }
+    ::-webkit-scrollbar-thumb:hover { background: color-mix(in oklab, var(--line) 40%, var(--txt)); }
 </style>
 </head>
 <body>
@@ -459,49 +526,66 @@
         <!-- ================= LAYERS ================= -->
         <div class="tabpane" data-pane="layers">
             <div class="hint" id="layers-intro" style="margin-bottom:8px;">
-                Layers stack bottom → top, like transparent sheets.
-                Tap a layer to edit it; combine types with blend modes
-                (try <b>fireflies</b> over <b>green flow</b> with <b>add</b> blending).
+                Top of the list renders on top. Tap one to edit; combine with blend modes.
             </div>
             <div id="layer-list"></div>
             <div class="layer-actions">
                 <button id="btn-add-layer">+ Add layer</button>
                 <button id="btn-dup-layer" class="secondary">Duplicate</button>
                 <button id="btn-del-layer" class="danger">Delete</button>
-            </div>
-            <div class="layer-actions">
                 <button id="btn-up" class="secondary icon">&#8593;</button>
                 <button id="btn-down" class="secondary icon">&#8595;</button>
             </div>
 
             <div id="layer-editor"></div>
 
-            <h2>Parameters</h2>
-            <div class="hint">Named values usable in any expression — write
-                <code>amplitude</code> in a channel equation, then drag its slider here.
-                Values may also be expressions of t.</div>
-            <div id="param-list"></div>
-            <div class="layer-actions">
-                <button id="btn-add-param" class="secondary">+ Add parameter</button>
-            </div>
-
-            <h2>Motion preset</h2>
-            <select id="preset-select"></select>
-            <div id="preset-params"></div>
-            <button id="btn-preset">Apply preset</button>
-            <div class="hint">Presets expand to plain expressions in the exported file.</div>
+            <details class="ws-section" open>
+                <summary>Parameters</summary>
+                <div class="ws-body">
+                    <div class="hint">Named values usable in any expression — write
+                        <code>amplitude</code> in a channel equation, then drag its slider here.
+                        Values may also be expressions of t.</div>
+                    <div id="param-list"></div>
+                    <div class="layer-actions">
+                        <button id="btn-add-param" class="secondary">+ Add parameter</button>
+                    </div>
+                </div>
+            </details>
+            <details class="ws-section">
+                <summary>Motion preset</summary>
+                <div class="ws-body">
+                    <select id="preset-select"></select>
+                    <div id="preset-params"></div>
+                    <button id="btn-preset">Apply preset</button>
+                    <div class="hint">Presets expand to plain expressions in the exported file.</div>
+                </div>
+            </details>
         </div>
 
         <!-- ================= MATH (default — just type equations) ================= -->
         <div class="tabpane active" data-pane="math">
-            <div class="hint" style="margin-bottom:8px;">
-                Type equations, watch the screen. Each row is one channel —
+            <div class="hint" style="margin-bottom:4px;">
+                Each row is one channel —
                 <b style="color:#ff9d9d">R</b> <b style="color:#86e3ac">G</b>
-                <b style="color:#9dabff">B</b> — over position
-                (<code>u</code> left→right, <code>v</code> top→bottom, both 0..1)
-                and time <code>t</code> in seconds. Output is 0..1
-                (<code>0.5 + 0.5*sin(t)</code> pulses black→full).
+                <b style="color:#9dabff">B</b> — evaluated per pixel.
+                Output 0..1 (<code>0.5+0.5*sin(t)</code> pulses black→full).
                 Any name you invent (like <code>amp</code>) becomes a slider below.
+            </div>
+            <div class="hint" style="margin-bottom:8px;">
+                <code>u,v</code> position 0..1 · <code>x,y</code> <b>pixels</b> ·
+                <code>width,height</code> pixels · <code>t</code> seconds
+                (equations that assume <code>x,y</code> ∈ 0..1 paint black)
+            </div>
+            <div class="shapes-row">
+                <span class="shapes-label">Shapes</span>
+                <div id="math-shapes"></div>
+            </div>
+            <div class="shapes-row">
+                <span class="shapes-label">AI</span>
+                <button id="btn-ai-prompt" class="secondary"
+                    title="copy a paste-ready description of the equation language for any chat bot">copy engine prompt</button>
+                <button id="btn-ai-paste" class="secondary"
+                    title="paste the bot's R:/G:/B: reply — inserted as equations, new names become sliders">paste reply</button>
             </div>
             <div id="math-sheet"></div>
             <div class="layer-actions">
@@ -566,8 +650,6 @@
                     <select id="f-loop"><option value="true">yes</option><option value="false">no</option></select>
                 </label>
             </div>
-
-            <h2>Author</h2>
             <label class="field">Author <input id="f-author" value=""></label>
         </div>
 

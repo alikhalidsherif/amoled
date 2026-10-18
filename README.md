@@ -110,7 +110,7 @@ player.play(); player.pause(); player.scrub(3.2);
 | `waves` | Traveling plane wave with wavelength/amplitude/speed/angle/phase |
 | `curve` | Parametric math art — Lissajous, harmonographs, roses, spirographs via `x(p)`/`y(p)` expressions with glow and damping |
 | `scope` | Signal traces — waveforms swept across x, animated by t; three-phase AC is the canonical example |
-| `expression` | Per-pixel math: `r/g/b` expressions over `x y t u v noise(...)` |
+| `expression` | Per-pixel math: `r/g/b` expressions over `u,v` (position 0..1), `x,y` (**pixels**), `t`, `width`, `height`, `noise(...)` |
 | `image` / `gif` / `video` | Media sources, rasterized to logical resolution |
 | `composite` | Layer stack with blend modes (`normal/add/multiply/screen/overlay`), opacity, clip rects, scale + **rotation**, offsets |
 
@@ -187,7 +187,22 @@ timeline scrubbing with frame stepping and speed control, motion presets
 (pulse/orbit/sway/flicker/hueDrift/… that expand to plain expressions),
 a Desmos-style expression editor (syntax highlighting, autocomplete, inline
 errors), named parameter sliders, and a pixel inspector — plus export.
-See `scenes/*.amo` for a gallery of every feature.
+The Math pane has one-click **shape presets** (circle/ring/square/cross/
+ripples) that insert working, slidable `u,v` equations — note that `x,y`
+are pixel coordinates here, so external snippets written as if `x,y ∈ 0..1`
+paint black. Next to them sits the **AI round-trip**: *copy engine prompt*
+hands you a paste-ready description of the equation language (coordinates,
+functions, the three-line `R:`/`G:`/`B:` output format) for any chat bot,
+and *paste reply* parses the bot's answer back in — invented names become
+parameter sliders automatically. See `scenes/*.amo` for a gallery of every
+feature.
+
+**Layers** (Advanced → Layers) list the top of the stack first — the top
+chip is what you see. New layers blend with `add` by default (change it
+under Transform & blending), Duplicate on a single scene wraps it into a
+two-layer composite, and waveform (`scope`) layers are edited from the
+Traces tab: selecting one and opening Traces edits that layer's traces
+while the other layers keep rendering underneath.
 
 ## API
 

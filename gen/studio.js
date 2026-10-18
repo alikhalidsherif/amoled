@@ -17,6 +17,8 @@ import {
     FUNCTION_NAMES, VARIABLE_NAMES, CONSTANT_NAMES, isReservedName
 } from "../src/scene/expression.js";
 import { rasterize } from "../src/scene/rasterizer.js";
+import { SHAPE_PRESETS, shapeFragment } from "../src/scene/shape-presets.js";
+import { ENGINE_PROMPT, parseAIReply } from "../src/scene/ai-prompt.js";
 import AMOLEDPlayer from "../src/player/amoplayer.js";
 
 const GPUPentileSimulator = window.AMOLED.GPUPentileSimulator;
@@ -327,7 +329,7 @@ function attachExprEditor(textarea, opts = {}) {
 // Scene type schemas (visual editors)
 // ------------------------------------------------------------------
 const SCENE_TYPES = ["livingGradient", "flow", "particles", "pattern",
-    "shape", "conicGradient", "waves",
+    "shape", "conicGradient", "waves", "scope",
     "curve", "expression", "gradient", "color", "image", "gif", "video"];
 
 // kind: eval-num (text input + optional slider), color, select, expr, int
@@ -599,8 +601,26 @@ function describeLayer(frag) {
             bits.push(`${stops} stops`);
             break;
         }
+        case "scope": {
+            const n = (frag.rows || []).filter(r => r?.type === "trace").length;
+            bits.push(`${n} trace${n === 1 ? "" : "s"}`);
+            break;
+        }
+        case "gradient":
+            bits.push("2-color");
+            break;
+        case "color":
+            if (typeof frag.color === "string") bits.push(frag.color);
+            break;
+        case "image":
+        case "gif":
+        case "video":
+            bits.push("media");
+            break;
         default: break;
     }
+    // On composites, surface the blend so "why is this hidden?" is visible.
+    if (isComposite() && frag?.blend && frag.blend !== "normal") bits.push(frag.blend);
     return bits.join(" · ");
 }
 
@@ -608,11 +628,23 @@ function renderLayers() {
     const host = $("layer-list");
     host.innerHTML = "";
     if (!workingRaw) return;
+
+    // Dead-end prevention: single scenes have nothing to reorder/delete
+    // yet — disable instead of silently no-op'ing (PLAN §5). Duplicate is
+    // always available: on a single scene it wraps + copies.
+    const single = !isComposite();
+    $("btn-del-layer").disabled = single;
+    $("btn-up").disabled = single;
+    $("btn-down").disabled = single;
+
     // Scope scenes are edited in the Traces workspace, not as layer chips.
     if (isTraceScene()) { highlightError(); return; }
 
+    // Display top-first (what-you-see order): the last array element is the
+    // topmost layer, so the list reads top → bottom like every layer editor.
+    const n = layerCount();
     const frags = isComposite()
-        ? workingRaw.scene.layers.map((l, i) => ({ frag: l, i }))
+        ? workingRaw.scene.layers.map((l, i) => ({ frag: l, i })).reverse()
         : [{ frag: workingRaw.scene, i: -1 }];
 
     frags.forEach(({ frag, i }) => {
@@ -625,7 +657,7 @@ function renderLayers() {
         }
         chip.dataset.layerIndex = String(selIdx);
         chip.innerHTML =
-            `<span class="l-order">${isComposite() ? (i + 1) : "•"}</span>` +
+            `<span class="l-order">${isComposite() ? (n - i) : "•"}</span>` +
             `<span class="l-type">${escapeHtml(frag?.type ?? "?")}</span>` +
             `<span class="l-desc">${escapeHtml(describeLayer(frag))}</span>`;
         chip.addEventListener("click", () => selectLayer(isComposite() ? i : -1));
@@ -637,11 +669,6 @@ function renderLayers() {
         hint.className = "hint";
         hint.textContent = "Single scene — add another layer to unlock blending.";
         host.appendChild(hint);
-    } else {
-        const order = document.createElement("div");
-        order.className = "hint";
-        order.textContent = "Order: bottom → top. Tap to edit.";
-        host.appendChild(order);
     }
     highlightError();
 }
@@ -654,6 +681,8 @@ function selectLayer(idx) {
     selected = idx < 0 ? { kind: "scene", index: -1 } : { kind: "layer", index: idx };
     renderLayers();
     renderLayerEditor();
+    // Selection drives which scope layer the Traces workspace edits.
+    renderTraceWorkspace();
     // Bring the editor into view so tapping a chip pays off immediately.
     requestAnimationFrame(() => {
         const ed = document.getElementById("layer-editor");
@@ -674,6 +703,10 @@ $("btn-add-layer").addEventListener("click", () => {
     ensureComposite();
     openTypePicker(t => {
         const frag = buildSceneForType(t);
+        // New layers default to additive blending — on an AMOLED matrix,
+        // light stacks additively; "normal" (opaque replace) hid everything
+        // below and made layering feel broken (PLAN §5).
+        if (frag.blend === undefined) frag.blend = "add";
         workingRaw.scene.layers.push(frag);
         selected = { kind: "layer", index: workingRaw.scene.layers.length - 1 };
         afterStructureChange();
@@ -682,7 +715,15 @@ $("btn-add-layer").addEventListener("click", () => {
 });
 
 $("btn-dup-layer").addEventListener("click", () => {
-    if (!isComposite()) return;
+    if (!isComposite()) {
+        // Single scene: duplicating means "make a composite with two copies"
+        // — the natural first step toward blending (PLAN §5).
+        ensureComposite();
+        workingRaw.scene.layers.splice(1, 0, JSON.parse(JSON.stringify(workingRaw.scene.layers[0])));
+        selected = { kind: "layer", index: 1 };
+        afterStructureChange();
+        return;
+    }
     const src = workingRaw.scene.layers[selected.index];
     if (!src) return;
     workingRaw.scene.layers.splice(selected.index + 1, 0, JSON.parse(JSON.stringify(src)));
@@ -704,8 +745,9 @@ $("btn-del-layer").addEventListener("click", () => {
     afterStructureChange();
 });
 
-$("btn-up").addEventListener("click", () => moveLayer(-1));
-$("btn-down").addEventListener("click", () => moveLayer(1));
+// List is displayed top-first: ↑ raises the layer in the stack (index + 1).
+$("btn-up").addEventListener("click", () => moveLayer(1));
+$("btn-down").addEventListener("click", () => moveLayer(-1));
 function moveLayer(dir) {
     if (!isComposite()) return;
     const i = selected.index, j = i + dir;
@@ -719,6 +761,7 @@ function moveLayer(dir) {
 function afterStructureChange() {
     renderLayers();
     renderLayerEditor();
+    renderTraceWorkspace(true);
     syncSourceFromWorking();
     loadToPlayer();
 }
@@ -727,6 +770,9 @@ function afterStructureChange() {
 // Field editors
 // ------------------------------------------------------------------
 function buildSceneForType(type) {
+    // Scope has no field schema (rows aren't editable via TYPE_FIELDS) —
+    // seed it with the canonical three traces.
+    if (type === "scope") return blankScopeScene();
     const scene = { type };
     const fields = TYPE_FIELDS[type] || [];
     for (const f of fields) {
@@ -766,14 +812,28 @@ function renderLayerEditor() {
 
     const type = frag.type;
     const title = document.createElement("h2");
-    title.textContent = `Edit ${type}${isComposite() ? ` · layer ${selected.index + 1}` : ""}`;
+    // Number matches the top-first chip badge (1 = topmost).
+    title.textContent = `Edit ${type}${isComposite() ? ` · layer ${layerCount() - selected.index}` : ""}`;
     host.appendChild(title);
 
     const wrap = document.createElement("div");
 
-    for (const f of TYPE_FIELDS[type] || []) {
-        if (f.when && !f.when(frag)) continue;
-        wrap.appendChild(renderField(f, frag));
+    if (type === "scope") {
+        // No field schema — traces are edited in the Traces workspace.
+        const n = (frag.rows || []).filter(r => r?.type === "trace").length;
+        const note = document.createElement("div");
+        note.className = "hint";
+        note.style.marginBottom = "8px";
+        note.textContent = `${n} trace${n === 1 ? "" : "s"} — height, speed, color and phase live in the Traces workspace.`;
+        const btn = document.createElement("button");
+        btn.textContent = "Edit traces";
+        btn.addEventListener("click", () => switchTab("traces"));
+        wrap.append(note, btn);
+    } else {
+        for (const f of TYPE_FIELDS[type] || []) {
+            if (f.when && !f.when(frag)) continue;
+            wrap.appendChild(renderField(f, frag));
+        }
     }
     host.appendChild(wrap);
 
@@ -1160,6 +1220,7 @@ const TYPE_DESCRIPTIONS = {
     shape: "Circle, ring, rect, line — expressions make them move",
     conicGradient: "Color sweep rotating around a center",
     waves: "Traveling plane wave with angle + phase",
+    scope: "Waveform traces — edited in the Traces tab",
     curve: "Math curves — Lissajous, roses, spirographs",
     expression: "Per-pixel math (advanced)",
     gradient: "Simple 2-color gradient",
@@ -1174,25 +1235,19 @@ function openTypePicker(onPick) {
     if (existing) existing.remove();
     const overlay = document.createElement("div");
     overlay.id = "type-picker";
-    overlay.style.cssText =
-        "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:50;" +
-        "display:flex;align-items:center;justify-content:center;padding:16px;";
     const card = document.createElement("div");
-    card.style.cssText =
-        "background:#101010;border:1px solid #2a2a2a;border-radius:8px;" +
-        "padding:14px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;";
-    card.innerHTML = `<h2 style="margin-top:0">Add a layer</h2>`;
+    card.className = "tp-card";
+    card.innerHTML = `<h2>Add a layer</h2>`;
     for (const t of SCENE_TYPES) {
         const btn = document.createElement("button");
-        btn.style.cssText = "display:block;width:100%;text-align:left;margin-top:6px;";
-        btn.innerHTML = `<b>${t}</b><br><span style="color:#888;font-size:11px">${TYPE_DESCRIPTIONS[t] || ""}</span>`;
+        btn.className = "tp-btn";
+        btn.innerHTML = `<b>${t}</b><span class="tp-desc">${TYPE_DESCRIPTIONS[t] || ""}</span>`;
         btn.addEventListener("click", () => { overlay.remove(); onPick(t); });
         card.appendChild(btn);
     }
     const cancel = document.createElement("button");
-    cancel.className = "secondary";
+    cancel.className = "secondary tp-cancel";
     cancel.textContent = "Cancel";
-    cancel.style.cssText = "width:100%;margin-top:10px;";
     cancel.addEventListener("click", () => overlay.remove());
     card.appendChild(cancel);
     overlay.appendChild(card);
@@ -1219,6 +1274,9 @@ function switchTab(name) {
         p.classList.toggle("active", p.dataset.pane === name));
     if (name === "traces") renderTraceWorkspace();
     if (name === "math") renderMathSheet();
+    // First open of Advanced must populate the default-active Math pane —
+    // without this the sheet stayed blank until an atab was clicked.
+    if (name === "advanced") renderMathSheet();
 }
 // Advanced sub-tabs (the old top-level tabs, one level down).
 document.querySelectorAll("#adv-strip button").forEach(btn => {
@@ -1540,16 +1598,6 @@ function stopSliderAnim(name) {
     loadToPlayer();
 }
 
-// Default math sheet: three-phase AC — the canonical starting point
-// (R leads G by 120°, G leads B by 120°).
-const DEFAULT_FIELD = () => ({
-    type: "expression",
-    r: "0.5 + 0.5*sin(t*2)",
-    g: "0.5 + 0.5*sin(t*2 - tau/3)",
-    b: "0.5 + 0.5*sin(t*2 - 2*tau/3)",
-    blend: "add"
-});
-
 /** Empty trio for "clear sheet" / additional equation groups. */
 const BLANK_FIELD = () => ({
     type: "expression",
@@ -1573,6 +1621,7 @@ function mathGroups() {
 function renderMathSheet() {
     const host = $("math-sheet");
     host.innerHTML = "";
+    renderShapesBar();
     if (!workingRaw) return;
 
     const groups = mathGroups();
@@ -1658,30 +1707,129 @@ function mathCard(group) {
     return card;
 }
 
+// Shape presets (PLAN_ADVANCED_MATH_POLISH.md): insert a working, slidable
+// shape as an equation group. Equations use u,v (0..1) — x,y are pixels in
+// this engine, so external "x,y ∈ 0..1" snippets silently paint black.
+function renderShapesBar() {
+    const host = $("math-shapes");
+    if (!host) return;
+    host.innerHTML = "";
+    for (const preset of SHAPE_PRESETS) {
+        const b = document.createElement("button");
+        b.className = "secondary";
+        b.textContent = preset.label;
+        b.dataset.shape = preset.id;
+        b.title = `insert a ${preset.label} (u,v equations, slidable cx/cy)`;
+        b.addEventListener("click", () => insertShape(preset));
+        host.appendChild(b);
+    }
+}
+
+function insertShape(preset) {
+    if (!workingRaw) return;
+    // Waveform scenes layer fine now (scope wraps as the base layer) — no
+    // guard; traces stay editable through the Traces workspace.
+    // Adopt preset params without clobbering names the user already has.
+    const params = workingRaw.parameters || (workingRaw.parameters = {});
+    for (const [name, spec] of Object.entries(preset.params)) {
+        if (!(name in params)) params[name] = { ...spec };
+    }
+    insertMathGroup(shapeFragment(preset));
+    setStatus(`inserted ${preset.label} — drag cx / cy / ${
+        "radius" in preset.params ? "radius" : "size" in preset.params ? "size" : "freq" in preset.params ? "freq" : "cx"
+    } sliders in Variables below`, "ok");
+}
+
+/**
+ * Insert an expression group into the sheet. Non-expression scenes
+ * (waveform, gradient, particles…) are kept as the base layer and the
+ * equations layer on top; single expression scenes are wrapped so the new
+ * group sits above them. Never destroys existing layers.
+ */
+function insertMathGroup(frag) {
+    ensureComposite();
+    workingRaw.scene.layers.push(frag);
+    selected = { kind: "layer", index: workingRaw.scene.layers.length - 1 };
+    renderMathSheet();
+    renderLayers();
+    hydrateAll();
+    commitEdits();
+}
+
+// ------------------------------------------------------------------
+// AI round-trip: copy a paste-ready engine prompt, parse the bot's
+// reply (R:/G:/B: lines) back into an equation group.
+// (PLAN_ADVANCED_MATH_POLISH.md §5.)
+// ------------------------------------------------------------------
+async function copyText(text) {
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch { /* fall through to execCommand */ }
+    try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.cssText = "position:fixed;left:-9999px;top:0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        ta.remove();
+        return ok;
+    } catch {
+        return false;
+    }
+}
+
+$("btn-ai-prompt").addEventListener("click", async () => {
+    const ok = await copyText(ENGINE_PROMPT);
+    setStatus(ok
+        ? "engine prompt copied — paste it into any AI, then use “paste reply”"
+        : "copy failed — select the prompt from the source pane instead", ok ? "ok" : "warn");
+});
+
+$("btn-ai-paste").addEventListener("click", async () => {
+    if (!workingRaw) return;
+    let text = "";
+    try {
+        if (navigator.clipboard?.readText) text = await navigator.clipboard.readText();
+    } catch { /* permission denied — fall back to manual paste */ }
+    const entered = prompt(
+        text
+            ? "Clipboard contents (edit if needed, then OK):"
+            : "Paste the AI reply (three lines: R: … G: … B: …), then OK:",
+        text || "");
+    if (entered === null) return;   // cancel
+    const parsed = parseAIReply(entered);
+    if (!parsed) {
+        setStatus("couldn't find R:/G:/B: lines in that reply — " +
+            "the bot should answer with exactly three lines", "warn");
+        return;
+    }
+    // Adopt invented names as sliders, then insert.
+    for (const expr of [parsed.r, parsed.g, parsed.b]) adoptUnknownIdentifiers(expr);
+    insertMathGroup({ type: "expression", r: parsed.r, g: parsed.g, b: parsed.b, blend: "add" });
+    setStatus("inserted AI equations — new names became sliders below", "ok");
+});
+
 // Old top-level Math tab is now an Advanced pane: it edits raw per-pixel
 // channel fields. Scenes are no longer auto-created here; point people back
 // to the primary workspace unless they specifically want raw pixel math.
 $("btn-add-field").addEventListener("click", () => {
     if (!workingRaw) return;
-    const groups = mathGroups();
-    if (groups === null) {
-        workingRaw.scene = DEFAULT_FIELD();
-    } else {
-        ensureComposite();
-        workingRaw.scene.layers.push(BLANK_FIELD());
-    }
-    renderMathSheet();
-    renderLayers();
-    commitEdits();
+    insertMathGroup(BLANK_FIELD());
 });
 
 $("btn-new-math").addEventListener("click", () => {
     if (!workingRaw) return;
     // Don't let the raw sheet wipe a trace scene — waveforms are edited in
     // the Traces workspace; raw fields can be added as layers instead.
-    if (isTraceScene()) {
-        setStatus("this is a waveform scene — edit its traces in the Traces tab, " +
-            "or add a raw equations layer in Layers", "warn");
+    // Same guard for composites that CONTAIN a scope layer.
+    if (isTraceScene() ||
+        (isComposite() && workingRaw.scene.layers.some(l => l?.type === "scope"))) {
+        setStatus("this scene has waveforms — edit traces in the Traces tab, " +
+            "or add/remove raw equations layers in Layers", "warn");
         return;
     }
     workingRaw.scene = BLANK_FIELD();
@@ -1804,6 +1952,37 @@ const TRACE_KNOB_META = {
 
 function isTraceScene() {
     return workingRaw?.scene?.type === "scope";
+}
+
+/**
+ * The scope fragment the Traces workspace should edit: the scene itself
+ * when it is a scope, or the selected layer when a composite contains a
+ * scope layer. (Scopes are valid composite layers — PLAN §5.)
+ */
+function activeScopeScene() {
+    if (!workingRaw) return null;
+    if (isTraceScene()) return workingRaw.scene;
+    if (isComposite()) {
+        const frag = workingRaw.scene.layers[selected.index];
+        if (frag?.type === "scope") return frag;
+    }
+    return null;
+}
+
+/** Traces tab must never dead-end: snap selection to the first scope layer.
+ *  Only fires while the Traces pane is visible — otherwise it would fight
+ *  Layers-tab selection of non-scope layers. */
+function ensureScopeSelection() {
+    if (!workingRaw || isTraceScene() || !isComposite()) return;
+    if (activeScopeScene()) return;
+    const tabPane = document.querySelector('#tab-content > .tabpane.active');
+    if (tabPane?.dataset.pane !== "traces") return;
+    const i = workingRaw.scene.layers.findIndex(l => l?.type === "scope");
+    if (i >= 0) {
+        selected = { kind: "layer", index: i };
+        renderLayers();
+        renderLayerEditor();
+    }
 }
 
 // Boot traces keep the canonical three-phase look: pure primaries, no
@@ -2244,43 +2423,77 @@ function buildHelpNote() {
 }
 
 function scopeRows() {
-    return isTraceScene() ? (workingRaw.scene.rows || []) : [];
+    return activeScopeScene()?.rows || [];
 }
 
 let _traceSig = "";
 function renderTraceWorkspace(force = false) {
-    document.body.classList.toggle("trace-mode", isTraceScene());
+    ensureScopeSelection();
+    const scope = activeScopeScene();
+    document.body.classList.toggle("trace-mode", !!scope);
     const pane = $("pane-traces");
     if (!pane || !workingRaw) return;
     // Commit-driven reloads (every knob drag) must NOT rebuild the DOM —
     // that would steal focus mid-drag. Only structure changes (scene type,
-    // trace count) or an explicit force trigger a rebuild.
-    const sig = `${workingRaw?.scene?.type}:${(workingRaw?.scene?.rows || []).filter(r => r?.type === "trace").length}`;
+    // trace count, selected layer) or an explicit force trigger a rebuild.
+    const sig = `${workingRaw?.scene?.type}:${selected.kind === "layer" ? selected.index : -1}:${
+        (scope?.rows || []).filter(r => r?.type === "trace").length}`;
     if (!force && sig === _traceSig) { updateScopeOverlay(); return; }
     _traceSig = sig;
     pane.innerHTML = "";
 
-    if (!isTraceScene()) {
-        // Non-scope scene loaded: it renders unchanged; don't mutate it.
+    if (!scope) {
+        // No scope selected: composite scenes may still CONTAIN scope layers
+        // — point at them instead of offering a destructive wipe.
         const note = document.createElement("div");
         note.className = "math-empty";
-        note.innerHTML =
-            `This scene isn't a waveform scene — it renders unchanged.<br>` +
-            `Edit it with the raw tools in <b>Advanced</b>, or start fresh:`;
-        const btn = document.createElement("button");
-        btn.style.marginTop = "8px";
-        btn.textContent = "Start a waveform scene";
-        btn.addEventListener("click", () => {
-            workingRaw.scene = blankScopeScene();
-            selected = { kind: "scene", index: -1 };
-            hydrateAll();
-            syncSourceFromWorking();
-            loadToPlayer();
-        });
-        note.appendChild(btn);
+        if (isComposite()) {
+            note.innerHTML =
+                `This scene is a composite — select a waveform layer in ` +
+                `<b>Layers</b> to edit its traces here.`;
+            const hasScope = workingRaw.scene.layers.some(l => l?.type === "scope");
+            if (!hasScope) {
+                const add = document.createElement("button");
+                add.style.marginTop = "8px";
+                add.textContent = "+ Add waveform layer";
+                add.addEventListener("click", () => {
+                    workingRaw.scene.layers.push(blankScopeScene());
+                    selected = { kind: "layer", index: workingRaw.scene.layers.length - 1 };
+                    afterStructureChange();
+                    switchTab("traces");
+                });
+                note.appendChild(add);
+            }
+        } else {
+            note.innerHTML =
+                `This scene isn't a waveform scene — it renders unchanged.<br>` +
+                `Edit it with the raw tools in <b>Advanced</b>, or start fresh:`;
+            const btn = document.createElement("button");
+            btn.style.marginTop = "8px";
+            btn.textContent = "Start a waveform scene";
+            btn.addEventListener("click", () => {
+                workingRaw.scene = blankScopeScene();
+                selected = { kind: "scene", index: -1 };
+                hydrateAll();
+                syncSourceFromWorking();
+                loadToPlayer();
+            });
+            note.appendChild(btn);
+        }
         pane.appendChild(note);
         updateScopeOverlay();
         return;
+    }
+
+    // Editing a scope layer inside a composite: say so explicitly.
+    if (isComposite()) {
+        const banner = document.createElement("div");
+        banner.className = "hint";
+        banner.style.marginBottom = "8px";
+        // Number matches the top-first chip badge (1 = topmost).
+        banner.textContent =
+            `Editing waveform layer ${layerCount() - selected.index} — other layers keep rendering underneath.`;
+        pane.appendChild(banner);
     }
 
     // --- TRACES section ---
@@ -2293,7 +2506,7 @@ function renderTraceWorkspace(force = false) {
     traces.appendChild(ts);
     const tbody = document.createElement("div");
     tbody.className = "ws-body";
-    const rows = scopeRows();
+    const rows = scope.rows;
     rows.forEach((row, i) => {
         if (row && row.type === "trace") tbody.appendChild(traceCard(row, i));
     });
@@ -2303,7 +2516,7 @@ function renderTraceWorkspace(force = false) {
     addT.textContent = "+ Add trace";
     addT.addEventListener("click", () => {
         const n = rows.filter(r => r && r.type === "trace").length;
-        workingRaw.scene.rows.push(addedTrace(n));
+        rows.push(addedTrace(n));
         renderTraceWorkspace(true);
         commitEdits();
     });
@@ -2311,7 +2524,7 @@ function renderTraceWorkspace(force = false) {
     addB.className = "secondary";
     addB.textContent = "+ Background";
     addB.addEventListener("click", () => {
-        workingRaw.scene.rows.unshift({ type: "color", color: "#000000" });
+        rows.unshift({ type: "color", color: "#000000" });
         renderTraceWorkspace(true);
         commitEdits();
     });
@@ -2428,7 +2641,10 @@ const GALLERY_LABELS = {
 };
 
 async function initGallery() {
-    const host = $("layer-list");
+    // Anchored at the bottom of the Advanced shell (not inside the Layers
+    // pane): examples load whole scenes, not layers — parking them between
+    // the layer list and the layer actions was noise (PLAN_ADVANCED_MATH_POLISH).
+    const host = document.getElementById("advanced-shell");
 
     // file:// mode: fetch() is blocked by the browser — explain instead of
     // silently showing an empty gallery.
@@ -2439,18 +2655,18 @@ async function initGallery() {
         note.textContent =
             "Examples are unavailable over file:// — serve the folder over http to enable them. " +
             "Editing and Export work fine.";
-        host.after(note);
+        host.appendChild(note);
         return;
     }
 
     const galTitle = document.createElement("h2");
     galTitle.textContent = "Examples — tap to load";
     galTitle.id = "gallery-title";
-    host.after(galTitle);
+    host.appendChild(galTitle);
     const gal = document.createElement("div");
     gal.className = "layer-actions";
     gal.id = "gallery";
-    galTitle.after(gal);
+    host.appendChild(gal);
 
     for (const name of GALLERY) {
         try {

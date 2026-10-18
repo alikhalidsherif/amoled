@@ -63,8 +63,16 @@ if (!await waitFor(() => window.__gworking()?.scene?.type === "composite")) fail
 const chips = await page.evaluate(() => document.querySelectorAll(".layer-chip").length);
 if (chips !== 2) fail(`expected 2 layer chips, got ${chips}`);
 
-// select base layer -> editor shows flow fields with slider companions
-await page.evaluate(() => document.querySelectorAll(".layer-chip")[0].click());
+// chips render top-first: the topmost layer (color) is chip 0, base (flow) chip 1
+const chipOrder = await page.evaluate(() =>
+    [...document.querySelectorAll(".layer-chip .l-type")].map(s => s.textContent).join(","));
+if (chipOrder !== "color,flow") fail(`chip order not top-first: ${chipOrder}`);
+
+// select base layer (bottom of stack = last chip) -> editor shows flow fields
+await page.evaluate(() => {
+    const chips = [...document.querySelectorAll(".layer-chip")];
+    chips.find(c => c.querySelector(".l-type")?.textContent === "flow")?.click();
+});
 await new Promise(r => setTimeout(r, 300));
 const editorOk = await page.evaluate(() =>
     !!document.querySelector("#layer-editor input[data-slider-for='scale']"));
