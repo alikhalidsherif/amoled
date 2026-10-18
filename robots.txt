@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://px.ali.et/sitemap.xml

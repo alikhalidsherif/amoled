@@ -1,13 +1,16 @@
 /* Shared design tokens — sim, studio, landing.
    Monochrome near-black base, one drifting accent hue.
-   The accent cycles the color wheel in 180s so it passes through every
-   color evenly; pages must only use the accent for interactive/attention
-   states, never tint the neutral surfaces.
+   The accent cycles the color wheel in 120s so it passes through every
+   color evenly at a clearly visible pace; pages must only use the accent
+   for interactive/attention states, never tint the neutral surfaces.
+   The starting hue is randomized per page load (src/hue-drift.js) so the
+   site never opens on the same color twice; reduced motion keeps the
+   static 250 fallback.
 
-   Drift is driven by src/hue-drift.js in ~2° steps once a second — a
+   Drift is driven by src/hue-drift.js in ~3° steps once a second — a
    continuous CSS animation of --h recalculates every accent-dependent
    style at 60fps, which starves low-power devices (and headless
-   SwiftShader). One step per second is visually identical for a 3-minute
+   SwiftShader). One step per second is visually identical for a 2-minute
    cycle and costs one style recalc per second. */
 
 @property --h {
@@ -29,7 +32,7 @@
     --faint: #5c5c62;
 
     --h: 250;
-    --hue-cycle: 180s;
+    --hue-cycle: 120s;
     --accent: oklch(65% 0.14 var(--h));
     --accent-ink: #0a0a0c;
     --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
@@ -45,4 +48,18 @@
 
     --radius: 8px;
     --radius-sm: 6px;
+}
+
+/* Visually hidden but readable by assistive tech (headings that the visual
+   chrome already conveys). */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
 }

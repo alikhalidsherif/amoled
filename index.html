@@ -3,11 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Diamond PenTile AMOLED Simulator — Subpixel Display Visualizer</title>
-<meta name="description" content="A pure client-side Diamond PenTile AMOLED subpixel lattice simulator. Visualize true emitter geometry with animated GIF, video, and image support. No backend required.">
-<meta name="keywords" content="AMOLED, Diamond PenTile, display simulator, subpixel, OLED, screen technology, display analysis, pixel structure">
+<title>Diamond PenTile AMOLED Simulator — px.ali.et</title>
+<meta name="description" content="A Diamond PenTile AMOLED simulator: watch images, GIFs and video resolve into true red, green and blue subpixel emitters — then author your own scenes.">
+<meta name="keywords" content="AMOLED, Diamond PenTile, display simulator, subpixel, OLED, screen technology, display analysis, pixel structure, subpixel simulator, AMOLED simulator">
 <meta name="author" content="Ali Khalid Sherif">
 <meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 
 <link rel="icon" type="image/svg+xml" href="/assets/icons/icon.svg">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/icon-16x16.png">
@@ -17,42 +20,106 @@
 <link rel="manifest" href="/assets/icons/manifest.json">
 
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="px.ali.et">
+<meta property="og:locale" content="en_US">
 <meta property="og:url" content="https://px.ali.et/">
-<meta property="og:title" content="Diamond PenTile AMOLED Simulator">
-<meta property="og:description" content="Visualize true Diamond PenTile subpixel geometry. Animated GIF, video, and image support. Pure client-side, zero backend.">
+<meta property="og:title" content="Your Display, Magnified. — px.ali.et">
+<meta property="og:description" content="A Diamond PenTile AMOLED simulator: watch images, GIFs and video resolve into true subpixel emitters, then author your own animated scenes. Pure client-side, zero backend.">
 <meta property="og:image" content="https://px.ali.et/assets/icons/og-preview.png">
-<meta property="og:image:width" content="512">
-<meta property="og:image:height" content="512">
-<meta property="og:image:alt" content="Diamond PenTile AMOLED subpixel lattice simulation">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="px.ali.et — a Diamond PenTile AMOLED subpixel simulator with colorful butterflies drifting over a true emitter grid">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Diamond PenTile AMOLED Simulator">
-<meta name="twitter:description" content="Visualize true Diamond PenTile subpixel geometry. Animated GIF, video, and image support. Pure client-side, zero backend.">
+<meta name="twitter:title" content="Your Display, Magnified. — px.ali.et">
+<meta name="twitter:description" content="A Diamond PenTile AMOLED simulator: watch images, GIFs and video resolve into true subpixel emitters, then author your own animated scenes. Pure client-side, zero backend.">
 <meta name="twitter:image" content="https://px.ali.et/assets/icons/og-preview.png">
-<meta name="twitter:image:alt" content="Diamond PenTile AMOLED subpixel lattice simulation">
+<meta name="twitter:image:alt" content="px.ali.et — a Diamond PenTile AMOLED subpixel simulator with colorful butterflies drifting over a true emitter grid">
 
 <link rel="canonical" href="https://px.ali.et/">
 <link rel="stylesheet" href="/styles/theme.css">
 <link rel="stylesheet" href="/styles/landing.css">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://px.ali.et/#website",
+      "url": "https://px.ali.et/",
+      "name": "px.ali.et",
+      "description": "Diamond PenTile AMOLED subpixel simulator and scene studio — pure client-side, zero backend.",
+      "inLanguage": "en",
+      "publisher": { "@id": "https://px.ali.et/#person" }
+    },
+    {
+      "@type": "Person",
+      "@id": "https://px.ali.et/#person",
+      "name": "Ali Khalid Sherif",
+      "url": "https://px.ali.et/",
+      "email": "mailto:px@ali.et",
+      "sameAs": ["https://github.com/alikhalidsherif/amoled"]
+    },
+    {
+      "@type": "WebApplication",
+      "@id": "https://px.ali.et/#simulator",
+      "name": "Diamond PenTile AMOLED Simulator",
+      "url": "https://px.ali.et/sim/",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Any (web browser)",
+      "browserRequirements": "Requires JavaScript and WebGL or Canvas 2D",
+      "description": "Visualize true Diamond PenTile subpixel geometry with animated GIF, video and image support. Every red, green and blue subpixel is drawn individually.",
+      "inLanguage": "en",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@id": "https://px.ali.et/#person" }
+    },
+    {
+      "@type": "WebApplication",
+      "@id": "https://px.ali.et/#studio",
+      "name": "AMO Studio",
+      "url": "https://px.ali.et/gen/",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Any (web browser)",
+      "browserRequirements": "Requires JavaScript",
+      "description": "Author layered animated AMOLED scenes — shapes, gradients, math and media layers — and render them on a true Diamond PenTile grid.",
+      "inLanguage": "en",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@id": "https://px.ali.et/#person" }
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://px.ali.et/#webpage",
+      "url": "https://px.ali.et/",
+      "name": "Diamond PenTile AMOLED Simulator — px.ali.et",
+      "isPartOf": { "@id": "https://px.ali.et/#website" },
+      "about": [
+        { "@id": "https://px.ali.et/#simulator" },
+        { "@id": "https://px.ali.et/#studio" }
+      ],
+      "inLanguage": "en"
+    }
+  ]
+}
+</script>
 </head>
 <body>
 <div id="display-shell">
-    <canvas id="display"></canvas>
+    <canvas id="display" role="img" aria-label="Live AMOLED subpixel simulation: colorful butterflies drifting over a Diamond PenTile emitter grid"></canvas>
 </div>
 
 <main id="hero">
     <header class="hero-top">
-        <span class="wordmark"><i>.amo</i></span>
-        <nav class="hero-nav">
-            <a href="https://github.com/alikhalidsherif/amoled" target="_blank" rel="noopener">GitHub</a>
-            <a href="mailto:px@ali.et">px@ali.et</a>
-        </nav>
+        <span class="wordmark">px<i>.</i>ali<i>.</i>et</span>
     </header>
 
     <div class="hero-main">
-        <h1>Light, subpixel by subpixel.</h1>
-        <p class="hero-sub">A Diamond PenTile AMOLED simulator that renders true emitter
-            geometry in your browser — every red, green, and blue subpixel you see is drawn as one.</p>
+        <h1>Your Display, Magnified.</h1>
+        <p class="hero-sub">A Diamond PenTile AMOLED simulator — images, GIFs, and video resolve
+            into the red, green, and blue emitters that actually light your screen. Author your
+            own animated scenes in the studio, all in the browser.</p>
         <div class="hero-actions">
             <a class="btn primary" href="/sim/">Open Simulator</a>
             <a class="btn secondary" href="/gen/">AMO Studio</a>
@@ -62,7 +129,8 @@
     <footer class="hero-foot">
         <span>Pure client-side · zero backend · MIT</span>
         <span class="spacer"></span>
-        <a href="https://github.com/alikhalidsherif/amoled" target="_blank" rel="noopener">github.com/alikhalidsherif/amoled</a>
+        <a href="mailto:px@ali.et">px@ali.et</a>
+        <a href="https://github.com/alikhalidsherif/amoled" target="_blank" rel="noopener">GitHub</a>
     </footer>
 </main>
 

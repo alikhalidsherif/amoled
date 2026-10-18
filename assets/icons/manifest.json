@@ -1,7 +1,7 @@
 {
-  "name": "Diamond PenTile AMOLED Simulator",
-  "short_name": "AMOLED Sim",
-  "description": "Visualize true Diamond PenTile subpixel geometry. Animated GIF, video, and image support. Pure client-side, zero backend.",
+  "name": "px.ali.et — Diamond PenTile AMOLED Simulator",
+  "short_name": "px.ali.et",
+  "description": "A Diamond PenTile AMOLED simulator: watch images, GIFs and video resolve into true subpixel emitters, then author your own animated scenes. Pure client-side, zero backend.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",

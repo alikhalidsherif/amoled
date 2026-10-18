@@ -4,11 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Diamond PenTile AMOLED Simulator — Subpixel Display Visualizer</title>
-    <meta name="description" content="A pure client-side Diamond PenTile AMOLED subpixel lattice simulator. Visualize true emitter geometry with animated GIF, video, and image support. No backend required.">
-    <meta name="keywords" content="AMOLED, Diamond PenTile, display simulator, subpixel, OLED, screen technology, display analysis, pixel structure">
+    <title>AMOLED Subpixel Visualizer — px.ali.et</title>
+    <meta name="description" content="A pure client-side Diamond PenTile AMOLED visualizer. Load images, GIFs or video and watch every red, green and blue subpixel emitter light up individually.">
+    <meta name="keywords" content="AMOLED, Diamond PenTile, display simulator, subpixel, OLED, screen technology, display analysis, pixel structure, AMOLED visualizer">
     <meta name="author" content="Ali Khalid Sherif">
     <meta name="theme-color" content="#000000">
+    <meta name="color-scheme" content="dark">
+    <meta name="robots" content="index, follow, max-image-preview:large">
 
     <!-- Favicons -->
     <link rel="icon" type="image/svg+xml" href="/assets/icons/icon.svg">
@@ -20,30 +22,61 @@
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
+    <meta property="og:site_name" content="px.ali.et">
+    <meta property="og:locale" content="en_US">
     <meta property="og:url" content="https://px.ali.et/sim/">
-    <meta property="og:title" content="Diamond PenTile AMOLED Simulator">
-    <meta property="og:description" content="Visualize true Diamond PenTile subpixel geometry. Animated GIF, video, and image support. Pure client-side, zero backend.">
+    <meta property="og:title" content="AMOLED Subpixel Visualizer — px.ali.et">
+    <meta property="og:description" content="Load images, GIFs or video and watch every red, green and blue Diamond PenTile emitter light up. Pure client-side, zero backend.">
     <meta property="og:image" content="https://px.ali.et/assets/icons/og-preview.png">
-    <meta property="og:image:width" content="512">
-    <meta property="og:image:height" content="512">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
     <meta property="og:image:alt" content="Diamond PenTile AMOLED subpixel lattice simulation">
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Diamond PenTile AMOLED Simulator">
-    <meta name="twitter:description" content="Visualize true Diamond PenTile subpixel geometry. Animated GIF, video, and image support. Pure client-side, zero backend.">
+    <meta name="twitter:title" content="AMOLED Subpixel Visualizer — px.ali.et">
+    <meta name="twitter:description" content="Load images, GIFs or video and watch every red, green and blue Diamond PenTile emitter light up. Pure client-side, zero backend.">
     <meta name="twitter:image" content="https://px.ali.et/assets/icons/og-preview.png">
     <meta name="twitter:image:alt" content="Diamond PenTile AMOLED subpixel lattice simulation">
 
     <!-- Canonical -->
     <link rel="canonical" href="https://px.ali.et/sim/">
 
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "name": "AMOLED Subpixel Visualizer",
+          "url": "https://px.ali.et/sim/",
+          "applicationCategory": "MultimediaApplication",
+          "operatingSystem": "Any (web browser)",
+          "browserRequirements": "Requires JavaScript and WebGL or Canvas 2D",
+          "description": "Visualize true Diamond PenTile subpixel geometry with animated GIF, video and image support. Every red, green and blue subpixel is drawn individually.",
+          "inLanguage": "en",
+          "isAccessibleForFree": true,
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "author": { "@type": "Person", "name": "Ali Khalid Sherif", "url": "https://px.ali.et/", "email": "mailto:px@ali.et" }
+        },
+        {
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            { "@type": "ListItem", "position": 1, "name": "px.ali.et", "item": "https://px.ali.et/" },
+            { "@type": "ListItem", "position": 2, "name": "Simulator", "item": "https://px.ali.et/sim/" }
+          ]
+        }
+      ]
+    }
+    </script>
+
     <link rel="stylesheet" href="../styles/theme.css">
     <link rel="stylesheet" href="../styles/demo.css">
 </head>
 <body>
+    <h1 class="sr-only">AMOLED Subpixel Visualizer — Diamond PenTile emitter geometry in your browser</h1>
     <div id="display-shell">
-        <canvas id="display"></canvas>
+        <canvas id="display" role="img" aria-label="AMOLED subpixel simulation canvas"></canvas>
     </div>
 
     <button id="panel-toggle" title="Toggle controls">&#9776;</button>
@@ -51,7 +84,7 @@
     <div id="sim-ui">
         <div class="panel-inner">
             <div class="panel-head">
-                <a href="/"><i>.amo</i></a>
+                <a href="/">px<i>.</i>ali<i>.</i>et</a>
                 <a href="/gen/">studio</a>
             </div>
             <div class="section-header" data-section="display">

@@ -51,13 +51,15 @@ body {
     background: #000;
 }
 
-/* Legibility scrim over the running simulation. */
+/* Legibility scrim over the running simulation: a left-side shelf the hero
+   copy sits on, plus the existing radial vignette. */
 #display-shell::after {
     content: "";
     position: absolute;
     inset: 0;
     pointer-events: none;
     background:
+        linear-gradient(90deg, rgba(0,0,0,.66) 0%, rgba(0,0,0,.34) 40%, rgba(0,0,0,0) 72%),
         radial-gradient(120% 90% at 50% 40%, rgba(0,0,0,.18) 0%, rgba(0,0,0,.55) 68%, rgba(0,0,0,.82) 100%);
 }
 
@@ -88,20 +90,21 @@ body {
     font-style: normal;
 }
 
-.hero-nav {
-    margin-left: auto;
+.hero-foot {
     display: flex;
-    gap: 18px;
-    font-size: 12px;
+    align-items: center;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--faint);
 }
 
-.hero-nav a, .hero-foot a {
+.hero-foot a {
     color: var(--dim);
     text-decoration: none;
     transition: color .15s ease;
 }
 
-.hero-nav a:hover, .hero-foot a:hover { color: var(--txt); }
+.hero-foot a:hover { color: var(--txt); }
 
 .hero-main {
     flex: 1;
@@ -169,14 +172,6 @@ body {
     border-color: var(--accent-line);
 }
 
-.hero-foot {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 11px;
-    color: var(--faint);
-}
-
 .hero-foot .spacer { flex: 1; }
 
 :focus-visible {
@@ -185,7 +180,6 @@ body {
 }
 
 @media (max-width: 640px) {
-    .hero-nav { display: none; }
     .hero-foot { flex-direction: column; align-items: flex-start; gap: 6px; }
     .hero-foot .spacer { display: none; }
 }

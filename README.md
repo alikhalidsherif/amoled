@@ -25,7 +25,11 @@ Built for display enthusiasts who want to see and manipulate actual subpixel str
 - **Canvas 2D fallback** — automatic when WebGL2 is unavailable
 - **Aspect-ratio preservation** — letterbox/pillarbox black padding for non-matching sources
 - **Auto-density scaling** — adapts to any screen size while keeping subpixels visible
-- **Landing page** — live butterfly attract animation rendered through the simulator, device-tier pitch, `prefers-reduced-motion` aware
+- **Landing page** — "Your Display, Magnified." hero over a live butterfly attract animation (scalloped wings, antennae, iridescent gradients), device-tier pitch, `prefers-reduced-motion` aware
+- **Randomized accent** — the hue cycles the full wheel in 120s starting from a
+  fresh random color on every page load; reduced motion falls back to static blue
+- **SEO & social** — per-page meta + JSON-LD, `robots.txt`, `sitemap.xml`, and a
+  1200×630 Open Graph card (`node tools/make-og-image.mjs` to regenerate)
 - **AMO Studio (`/gen`)** — trace-first `.amo` scene builder with a full color picker per trace; RGB channel binding stays a separate, opt-in PenTile experiment
 - **Modular architecture** — extract individual components for other projects
 
@@ -285,13 +289,16 @@ src/
 ├── patterns.js                 Built-in test pattern
 ├── attract.js                  Landing butterfly attract animation
 ├── landing.js                  Landing boot (ES module)
-├── hue-drift.js                Stepped accent-hue rotation (theme.css)
+├── hue-drift.js                Stepped accent-hue rotation, random start per load (theme.css)
 ├── color-popover.js            Studio color-picker component
 ├── gifuct.js                   GIF decoder library (bundled)
 └── app.js                      Simulator boot (ES module)
 tests/
 ├── lattice-parity.js           Verifies shader lattice == CPU geometry
 └── browser/                    Headless Chrome smoke/regression harnesses
+tools/
+├── shot.mjs                    Dev screenshot helper (viewport shots)
+└── make-og-image.mjs           Regenerates assets/icons/og-preview.png (1200x630)
 ```
 
 ## How It Works

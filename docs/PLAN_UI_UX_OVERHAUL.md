@@ -43,12 +43,12 @@ tests + screenshot review ✅ (§7: full node + browser suites green incl. `land
 --txt:#d6d6db --dim:#8e8e96 --faint:#5c5c64     /* pulled down from near-white */
 
 @property --h { syntax:"<number>"; inherits:true; initial-value:250; }
---hue-cycle: 180s;  /* single knob */
+--hue-cycle: 120s;  /* single knob — see §10 for the 180s → 120s change */
 ```
 
 Implementation note (decided during build): the drift is **stepped by `src/hue-drift.js`**
-via `requestAnimationFrame` — one `--h` update per second (2°/s, visually identical to
-a smooth 180s pass), not a CSS animation. A continuously animating custom property
+via `requestAnimationFrame` — one `--h` update per second (3°/s, visually identical to
+a smooth 120s pass), not a CSS animation. A continuously animating custom property
 forces a full style recalc every frame across every accent-dependent element, which
 visibly starved low-power/headless rendering (a "still typing" debounce drifted from
 300ms to >1s and test flows flaked). Stepping costs one style recalc per second;
@@ -143,7 +143,7 @@ Swatch button → popover: **SV square + hue strip + hex text field** (`#rgb`/`#
 **Visual review:** screenshots desktop + mobile of `/`, `/sim/`, `/gen/` (a few hues into the accent cycle) — review and iterate before done.
 
 **Acceptance criteria** (from brief):
-1. No fixed green anywhere; even 180s hue drift; static darker blue fallback; text/accent contrast ≥4.5:1 at every hue (automated).
+1. No fixed green anywhere; even 120s hue drift from a random starting hue; static darker blue fallback; text/accent contrast ≥4.5:1 at every hue (automated).
 2. Arbitrary trace colors (incl. mixed RGB) render through the AMOLED pipeline; picker changes actual output; save/export + reopen preserves color; examples unchanged.
 3. New traces unbound; channel binding opt-in in More with warning; ordinary traces never silently overridden.
 4. Landing: butterflies attract, tier-based pitch, 1× supersample, hero with serif type, 2 CTAs, GitHub + px@ali.et; `/sim` and `/gen` work; `?scene=` works.
@@ -161,6 +161,84 @@ Formula Art, new waveform types, math features, renderer architecture changes, `
 6. New browser tests, full suite, screenshot review + polish pass.
 
 ---
+
+## 10. Design pass 2 — branding, hero, butterflies, hue, SEO (2026-10-18)
+
+Overnight follow-up on the §1–§9 build. User brief: move contact/GitHub to the
+footer, new hero line, polish the butterflies, faster + randomized hue cycle,
+pick a real title/brand, and give every page world-class SEO. Everything below
+shipped together with tests.
+
+### 10.1 Brand decision
+- **Brand = `px.ali.et`** (not "pixelate", not "AMOLED"): it is the actual
+  domain, the `og:url` base, and the contact identity (`px@ali.et`) — the only
+  ownable name of the three. "AMOLED" is trademark-adjacent and generic for
+  SEO; "pixelate" contradicts the subpixel-precise premise of the project.
+- Wordmark everywhere: `px.ali.et` in mono with accent-colored dots (landing
+  header, sim panel head, studio topbar). Product names stay descriptive:
+  **Simulator** (`/sim/`), **AMO Studio** (`/gen/`).
+- Page titles — unique, ≤65 chars, brand suffix (asserted by `tests/seo.test.js`):
+  - `/` → `Diamond PenTile AMOLED Simulator — px.ali.et`
+  - `/sim/` → `AMOLED Subpixel Visualizer — px.ali.et`
+  - `/gen/` → `AMO Studio — Animated AMOLED Scenes — px.ali.et`
+- `assets/icons/manifest.json` rebranded (name carries `px.ali.et`, short_name ≤12 chars).
+
+### 10.2 Landing hero + footer
+- H1 → **"Your Display, Magnified."**; sub rewritten as a concise project
+  explanation (what the simulator shows, that the studio authors scenes).
+- GitHub + `px@ali.et` moved out of the top-right nav into the bottom footer
+  (`Pure client-side · zero backend · MIT` left; email + GitHub right; stacked
+  on mobile). `.hero-nav` rules removed from `landing.css`.
+- Scrim gained a left-side linear gradient (`rgba(0,0,0,.66)` → transparent at
+  72%) so hero copy stays legible over bright butterflies.
+
+### 10.3 Butterfly polish (`src/attract.js`)
+- Per-butterfly lobe jitter (size/rotation/offset) — no two silhouettes match.
+- Scalloped wing edges (5-lobe radius ripple) instead of bare ellipses.
+- Swallowtail lobes (two extra hindwing tails) + antennae (soft segment SDF).
+- Iridescent fill: near-body color (hue-shifted, lighter) blends to the deeper
+  rim color; per-butterfly luminance variance.
+- Asymmetric flap (right wing trails left by 0.35 rad) + body lift synced to
+  the wing beat; drift path gains a slow secondary oscillator (meander).
+- Deliberately **no frame trails**: at these drift speeds only the flap moves,
+  and additive accumulation washed out hues in a trial capture.
+
+### 10.4 Hue cycle
+- `--hue-cycle: 180s` → **`120s`** (3°/s at the existing 1s step — the original
+  180s read as "barely changing" at normal glance time).
+- **Random starting hue per page load** (`Math.random()*360` base in
+  `src/hue-drift.js`); hue normalized to `[0, 360)`. Reduced motion keeps the
+  static 250 fallback and never drifts.
+- `tests/browser/landing.mjs` asserts `cycle === 120000`, `base ∈ [0,360)`,
+  derives expected drift from `__hueDrift.cycle`, and wraps the sampled delta
+  across 0° (a random start makes a mid-sample wrap possible).
+
+### 10.5 SEO (all pages)
+- Per page: unique title + description (70–170 chars), keywords, author,
+  robots (`index, follow, max-image-preview:large`), color-scheme, canonical ==
+  `og:url`, full Open Graph (`og:site_name`, `og:locale`, image with
+  width/height/alt), Twitter `summary_large_image`, favicons + manifest, and
+  exactly one `<h1>` (`.sr-only` heading added to `/sim/` and `/gen/`).
+- JSON-LD (`@graph`): landing = WebSite + Person + two WebApplications +
+  WebPage; `/sim/` and `/gen/` = SoftwareApplication + BreadcrumbList.
+- `robots.txt` (wildcard allow + sitemap pointer) and `sitemap.xml` (three URLs,
+  lastmod) added; nginx serves both through `try_files`.
+- OG card regenerated at **1200×630** from the live landing page via
+  `tools/make-og-image.mjs` — runs with `prefers-reduced-motion` so the pose at
+  t=4.2 and the static blue accent are deterministic across runs.
+- Studio viewport dropped `user-scalable=no` (accessibility / mobile SEO).
+
+### 10.6 Tests, verification, tooling
+- New `tests/seo.test.js` (106 checks, appended to `npm test`): meta sets,
+  canonical/og:url agreement, title uniqueness, JSON-LD parseability, OG PNG
+  dimensions (IHDR), robots/sitemap contents, manifest branding.
+- `tests/browser/landing.mjs` updated for the new headline, footer links, and
+  randomized 120s drift.
+- Full matrix green: `npm test` (19 suites) and every browser suite (`smoke`,
+  `regression`, `phase3–10`, `resize`, `studio`, `studio-overhaul`, `shapes`,
+  `layers`, `trace-color`, `landing`).
+- New dev tools: `tools/shot.mjs` (viewport screenshots) and
+  `tools/make-og-image.mjs`; screenshots live under `screenshots/` (gitignored).
 
 ## Appendix A — Why low optical spill looks greenish (design notes, not scope)
 

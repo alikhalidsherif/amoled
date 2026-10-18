@@ -124,7 +124,7 @@ const hero = await page.evaluate(() => {
         })()
     };
 });
-if (!hero.h1 || !/Light, subpixel/.test(hero.h1)) fail(`hero headline missing (${hero.h1})`);
+if (!hero.h1 || !/Your Display, Magnified/.test(hero.h1)) fail(`hero headline missing (${hero.h1})`);
 if (!/Instrument Serif/.test(hero.serif)) fail(`hero must use the serif face (got ${hero.serif})`);
 if (hero.primaryHref !== "/sim/") fail(`primary CTA should point to /sim/ (got ${hero.primaryHref})`);
 if (hero.secondaryHref !== "/gen/") fail(`secondary CTA should point to /gen/ (got ${hero.secondaryHref})`);
@@ -145,9 +145,10 @@ if (tokens.bg !== "#08080a") fail(`theme.css not applied (--bg: ${tokens.bg})`);
 if (!/^oklch\(65% 0\.14 [\d.]+\)$/.test(tokens.accent)) fail(`accent token malformed (${tokens.accent})`);
 if (!tokens.fontLoaded) fail("Instrument Serif woff2 did not load");
 
-// accent drift: __h advances at 2deg/s of wall clock and the resolved
-// accent hue follows it. Sampled inside one evaluate: under SwiftShader a
-// round trip between evaluates can take seconds.
+// accent drift: __h advances through a random starting hue at 3°/s of wall
+// clock (120s cycle) and the resolved accent hue follows it. Sampled inside
+// one evaluate: under SwiftShader a round trip between evaluates can take
+// seconds.
 const drift = await page.evaluate(async () => {
     const h0 = window.__hueDrift.current();
     const t0 = performance.now();
@@ -156,11 +157,23 @@ const drift = await page.evaluate(async () => {
     const h1 = window.__hueDrift.current();
     const v = getComputedStyle(document.documentElement).getPropertyValue("--accent");
     const m = /\(65% 0\.14 ([\d.]+)\)/.exec(v);
-    return { h0, h1, dt: t1 - t0, accent: m ? parseFloat(m[1]) : NaN };
+    return {
+        h0, h1, dt: t1 - t0,
+        cycle: window.__hueDrift.cycle,
+        base: window.__hueDrift.base,
+        accent: m ? parseFloat(m[1]) : NaN
+    };
 });
-const expected = drift.dt / 1000 * 2;
-if (!(Math.abs((drift.h1 - drift.h0) - expected) <= 3)) {
-    fail(`accent hue drifted ${(drift.h1 - drift.h0).toFixed(1)} over ${drift.dt.toFixed(0)}ms (expected ~${expected.toFixed(1)})`);
+if (drift.cycle !== 120000) fail(`hue cycle should be 120s (got ${drift.cycle}ms)`);
+if (!(drift.base >= 0 && drift.base < 360)) fail(`hue base should be a random 0..360 hue (got ${drift.base})`);
+if (!(drift.h0 >= 0 && drift.h0 < 360)) fail(`current hue should wrap to 0..360 (got ${drift.h0})`);
+const expected = drift.dt / drift.cycle * 360;
+// shortest signed delta — the random starting hue can wrap mid-sample
+let delta = drift.h1 - drift.h0;
+if (delta < -180) delta += 360;
+if (delta > 180) delta -= 360;
+if (!(Math.abs(delta - expected) <= 3)) {
+    fail(`accent hue drifted ${delta.toFixed(1)} over ${drift.dt.toFixed(0)}ms (expected ~${expected.toFixed(1)})`);
 }
 if (!(Math.abs(drift.accent - drift.h1) < 1)) {
     fail(`resolved accent hue does not follow --h (${drift.accent} vs ${drift.h1})`);

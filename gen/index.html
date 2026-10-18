@@ -2,8 +2,69 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>.amo Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMO Studio — Animated AMOLED Scenes — px.ali.et</title>
+<meta name="description" content="Author animated AMOLED scenes in your browser: layered shapes, gradients, math and GIF layers, rendered on a true Diamond PenTile subpixel grid. Pure client-side.">
+<meta name="keywords" content="AMOLED animation, subpixel art, scene editor, AMO scene, Diamond PenTile, AMOLED studio, pixel art animation">
+<meta name="author" content="Ali Khalid Sherif">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="index, follow, max-image-preview:large">
+
+<link rel="icon" type="image/svg+xml" href="/assets/icons/icon.svg">
+<link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/icon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/icon-32x32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="/assets/icons/icon-48x48.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/icons/apple-touch-icon.png">
+<link rel="manifest" href="/assets/icons/manifest.json">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="px.ali.et">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://px.ali.et/gen/">
+<meta property="og:title" content="AMO Studio — Animated AMOLED Scenes">
+<meta property="og:description" content="Layered shapes, gradients, math and media rendered on a true Diamond PenTile subpixel grid. A browser studio for AMOLED animation. Zero backend.">
+<meta property="og:image" content="https://px.ali.et/assets/icons/og-preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="AMO Studio — layered animated scene authoring on a Diamond PenTile AMOLED grid">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="AMO Studio — Animated AMOLED Scenes">
+<meta name="twitter:description" content="Layered shapes, gradients, math and media rendered on a true Diamond PenTile subpixel grid. A browser studio for AMOLED animation. Zero backend.">
+<meta name="twitter:image" content="https://px.ali.et/assets/icons/og-preview.png">
+<meta name="twitter:image:alt" content="AMO Studio — layered animated scene authoring on a Diamond PenTile AMOLED grid">
+
+<link rel="canonical" href="https://px.ali.et/gen/">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "AMO Studio",
+      "url": "https://px.ali.et/gen/",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Any (web browser)",
+      "browserRequirements": "Requires JavaScript",
+      "description": "Author layered animated AMOLED scenes — shapes, gradients, math and media layers — and render them on a true Diamond PenTile grid. Exports .amo scene files.",
+      "inLanguage": "en",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Person", "name": "Ali Khalid Sherif", "url": "https://px.ali.et/", "email": "mailto:px@ali.et" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "px.ali.et", "item": "https://px.ali.et/" },
+        { "@type": "ListItem", "position": 2, "name": "AMO Studio", "item": "https://px.ali.et/gen/" }
+      ]
+    }
+  ]
+}
+</script>
+
 <link rel="stylesheet" href="../styles/theme.css">
 <link rel="stylesheet" href="../styles/color-popover.css">
 <style>
@@ -463,8 +524,10 @@
 </head>
 <body>
 
+<h1 class="sr-only">AMO Studio — author animated scenes on a Diamond PenTile AMOLED grid</h1>
+
 <div id="topbar">
-    <a class="logo" href="/"><i>.amo</i> studio</a>
+    <a class="logo" href="/">px<i>.</i>ali<i>.</i>et studio</a>
     <input id="f-name" value="my scene" aria-label="scene name">
     <span class="spacer"></span>
     <button id="btn-export" class="secondary">Export</button>
