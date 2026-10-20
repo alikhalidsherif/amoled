@@ -64,8 +64,12 @@ function pngSize(rel) {
 const PAGES = [
     { rel: "index.html", url: "https://px.ali.et/" },
     { rel: "sim/index.html", url: "https://px.ali.et/sim/" },
+    { rel: "guide/index.html", url: "https://px.ali.et/guide/" },
     { rel: "gen/index.html", url: "https://px.ali.et/gen/" }
 ];
+
+// Pages that must answer searcher questions directly (FAQPage schema).
+const FAQ_PAGES = ["index.html", "guide/index.html"];
 
 const titles = [];
 const htmls = {};
@@ -126,6 +130,21 @@ for (const p of PAGES) {
     ok(types.some(t => ["WebSite", "SoftwareApplication", "WebApplication", "WebPage"].includes(t)),
         `${p.rel}: JSON-LD has an entry type (got ${types.join(",")})`);
     ok(graph.every(n => n.name || n.itemListElement), `${p.rel}: JSON-LD nodes are labeled`);
+
+    // FAQPage schema on the content-heavy pages — mirrors the visible
+    // <details> FAQ blocks so rich results have matching on-page content.
+    if (FAQ_PAGES.includes(p.rel)) {
+        const faq = graph.find(n => n["@type"] === "FAQPage");
+        ok(!!faq, `${p.rel}: JSON-LD has a FAQPage node`);
+        const questions = (faq && faq.mainEntity) || [];
+        ok(questions.length >= 4, `${p.rel}: FAQPage has >= 4 questions (got ${questions.length})`);
+        ok(questions.every(q => q["@type"] === "Question" && q.name && q.acceptedAnswer?.text),
+            `${p.rel}: every FAQ Question has a name and answered text`);
+        // Questions must exist as crawlable on-page copy too, not only in JSON-LD.
+        const summaries = [...html.matchAll(/<summary>([^<]*)<\/summary>/g)].map(m => m[1].trim());
+        ok(questions.every(q => summaries.some(s => s.includes(q.name.slice(0, 24)))),
+            `${p.rel}: FAQ questions appear in visible <summary> copy`);
+    }
 
     // Heading structure: exactly one h1 (visible or sr-only)
     const h1s = html.match(/<h1[\s>]/gi) || [];

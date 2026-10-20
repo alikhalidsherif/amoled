@@ -74,6 +74,7 @@
 
     function start() {
         if (raf) return;
+        if (!heroVisible || document.hidden) return;
         if (reduceMotion) { renderFrame(4.2); return; }
         raf = requestAnimationFrame(loop);
     }
@@ -81,6 +82,17 @@
     function stop() {
         if (raf) cancelAnimationFrame(raf);
         raf = 0;
+    }
+
+    // The hero is only the first screen — once it scrolls out of view the
+    // fixed canvas is hidden behind the content tray, so stop burning frames.
+    let heroVisible = true;
+    const heroEl = document.getElementById("hero");
+    if (heroEl && "IntersectionObserver" in window) {
+        new IntersectionObserver(entries => {
+            heroVisible = entries[0].isIntersecting;
+            if (heroVisible) start(); else stop();
+        }, { threshold: 0 }).observe(heroEl);
     }
 
     document.addEventListener("visibilitychange", () => {

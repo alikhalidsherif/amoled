@@ -1,10 +1,12 @@
 # AMOLED Diamond PenTile Simulator
 
-**Live demo: https://px.ali.et/**
+**Try the live [Diamond PenTile AMOLED Simulator](https://px.ali.et/)** — plus
+[AMO Studio](https://px.ali.et/gen/) and the
+[AMOLED subpixel guide](https://px.ali.et/guide/).
 
 A pure client-side Diamond PenTile AMOLED subpixel lattice simulator. Renders true emitter geometry — green circles, red/blue diamonds, strict black matrix — directly in the browser with zero backend dependency.
 
-Built for display enthusiasts who want to see and manipulate actual subpixel structure.
+Built for display enthusiasts who want to see and manipulate actual subpixel structure — and for anyone who needs an [AMOLED screen test online](https://px.ali.et/sim/) or wants to understand [why AMOLED text fringes](https://px.ali.et/guide/#fringing).
 
 ## Features
 
@@ -25,11 +27,13 @@ Built for display enthusiasts who want to see and manipulate actual subpixel str
 - **Canvas 2D fallback** — automatic when WebGL2 is unavailable
 - **Aspect-ratio preservation** — letterbox/pillarbox black padding for non-matching sources
 - **Auto-density scaling** — adapts to any screen size while keeping subpixels visible
-- **Landing page** — "Your Display, Magnified." hero over a live butterfly attract animation (scalloped wings, antennae, iridescent gradients), device-tier pitch, `prefers-reduced-motion` aware
+- **Landing page** — "Your Display, Magnified." hero over a live butterfly attract animation (scalloped wings, antennae, iridescent gradients), device-tier pitch, `prefers-reduced-motion` aware, with a scroll-in "About & mechanics" tray of crawlable subpixel documentation
 - **Randomized accent** — the hue cycles the full wheel in 120s starting from a
   fresh random color on every page load; reduced motion falls back to static blue
-- **SEO & social** — per-page meta + JSON-LD, `robots.txt`, `sitemap.xml`, and a
-  1200×630 Open Graph card (`node tools/make-og-image.mjs` to regenerate)
+- **SEO & social** — per-page meta + JSON-LD (incl. FAQPage on `/` and `/guide/`),
+  `robots.txt`, `sitemap.xml`, a long-form [AMOLED subpixel guide](https://px.ali.et/guide/),
+  and a designed 1200×630 Open Graph card (`node tools/make-og-image.mjs` to
+  regenerate from `tools/og-card.html`)
 - **AMO Studio (`/gen`)** — trace-first `.amo` scene builder with a full color picker per trace; RGB channel binding stays a separate, opt-in PenTile experiment
 - **Modular architecture** — extract individual components for other projects
 
@@ -298,7 +302,8 @@ tests/
 └── browser/                    Headless Chrome smoke/regression harnesses
 tools/
 ├── shot.mjs                    Dev screenshot helper (viewport shots)
-└── make-og-image.mjs           Regenerates assets/icons/og-preview.png (1200x630)
+├── og-card.html                Designed 1200×630 Open Graph card (deterministic)
+└── make-og-image.mjs           Renders og-card.html → assets/icons/og-preview.png
 ```
 
 ## How It Works

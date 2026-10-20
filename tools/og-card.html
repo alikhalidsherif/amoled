@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="robots" content="noindex, nofollow">
+<title>OG card — px.ali.et</title>
+<style>
+/* Open Graph share card (1200x630) — static build artifact rendered by
+   tools/make-og-image.mjs. Everything here is deterministic: fixed colors,
+   no randomness, no live page. */
+
+@font-face {
+    font-family: "Instrument Serif";
+    font-style: normal;
+    font-weight: 400;
+    font-display: block;
+    src: url("/assets/fonts/instrument-serif-latin.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+        U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+        U+FEFF, U+FFFD;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+    background: #000;
+}
+
+body {
+    position: relative;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #d6d6db;
+    -webkit-font-smoothing: antialiased;
+}
+
+canvas {
+    position: absolute;
+    inset: 0;
+    width: 1200px;
+    height: 630px;
+}
+
+.copy {
+    position: absolute;
+    left: 64px;
+    top: 58px;
+    width: 560px;
+}
+
+.wordmark {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 19px;
+    letter-spacing: .06em;
+    color: #e6e6ea;
+}
+
+.wordmark i { color: oklch(70% 0.15 165); font-style: normal; }
+
+.eyebrow {
+    margin-top: 34px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    letter-spacing: .24em;
+    text-transform: uppercase;
+    color: oklch(72% 0.14 165);
+}
+
+h1 {
+    margin-top: 16px;
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-weight: 400;
+    font-size: 74px;
+    line-height: 1.0;
+    letter-spacing: -0.015em;
+    color: #f4f4f6;
+}
+
+.tagline {
+    margin-top: 20px;
+    width: 500px;
+    font-size: 18.5px;
+    line-height: 1.5;
+    color: #a4a4ac;
+}
+
+.chips {
+    margin-top: 26px;
+    display: flex;
+    gap: 10px;
+}
+
+.chip {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    letter-spacing: .08em;
+    color: #b6b6be;
+    border: 1px solid #2a2a31;
+    background: rgba(10, 10, 13, .55);
+    border-radius: 999px;
+    padding: 7px 14px 6px;
+}
+
+.url {
+    position: absolute;
+    left: 64px;
+    bottom: 46px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 15px;
+    letter-spacing: .04em;
+    color: #8e8e96;
+}
+
+.url b { color: #d6d6db; font-weight: 500; }
+.url em { color: oklch(70% 0.15 165); font-style: normal; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1200" height="630"></canvas>
+
+<div class="copy">
+    <div class="wordmark">px<i>.</i>ali<i>.</i>et</div>
+    <div class="eyebrow">Diamond PenTile emitter lattice</div>
+    <h1>Diamond PenTile<br>AMOLED Simulator</h1>
+    <p class="tagline">Watch images, GIFs and video resolve into true red, green and
+        blue subpixel emitters — with optical spill, bloom and emissive panel
+        physics.</p>
+    <div class="chips">
+        <span class="chip">SUBPIXET MATRIX</span>
+        <span class="chip">OPTICAL BLOOM</span>
+        <span class="chip">ZERO BACKEND</span>
+    </div>
+</div>
+
+<div class="url"><b>px.ali.et</b><em>/</em>sim</div>
+
+<script>
+// Authentic Diamond PenTile lattice — same placement rules as
+// src/engine/diamond-pentile-geometry.js (staggered rows, green on the
+// (row+col) checker, R/B diamonds alternating by phase), same shape ratios
+// as src/engine/config.js.
+(() => {
+    const W = 1200, H = 630;
+    const ctx = document.getElementById("c").getContext("2d");
+
+    const pitch = 15;
+    const rowPitchFactor = 0.86, blackMatrixRatio = 0.22;
+    const greenSizeRatio = 0.80, diamondSizeRatio = 0.90;
+    const pitchY = pitch * rowPitchFactor;
+    const base = pitch * 0.5;
+    const trim = base * blackMatrixRatio;
+    const greenR = base * greenSizeRatio - trim;
+    const diamondR = base * diamondSizeRatio - trim;
+
+    // Per-channel emissive character (mirrors the engine's peak output skew).
+    const CH_BIAS = { r: 0.88, g: 1.0, b: 0.78 };
+
+    // Deterministic glow field — spectrum blobs living on the right side of
+    // the card, fading to true black behind the copy on the left.
+    const spots = [
+        { x: 838, y: 246, r: 265, c: [1.00, 0.24, 0.52] },   // magenta
+        { x: 1012, y: 432, r: 285, c: [0.22, 1.00, 0.55] },  // green
+        { x: 1128, y: 176, r: 250, c: [0.28, 0.55, 1.00] },  // blue
+        { x: 706, y: 474, r: 205, c: [1.00, 0.72, 0.24] },   // amber
+        { x: 944, y: 318, r: 95, c: [1.00, 1.00, 1.00] },    // hot core
+        { x: 1170, y: 560, r: 210, c: [0.85, 0.35, 1.00] }   // violet
+    ];
+
+    function field(x, y) {
+        let fr = 0, fg = 0, fb = 0;
+        for (let i = 0; i < spots.length; i++) {
+            const s = spots[i];
+            const dx = x - s.x, dy = y - s.y;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d >= s.r) continue;
+            const t = 1 - d / s.r;
+            const a = t * t;                       // smooth falloff
+            fr += s.c[0] * a;
+            fg += s.c[1] * a;
+            fb += s.c[2] * a;
+        }
+        // Left-side shelf so the copy always sits on near-black.
+        const mask = x < 540 ? 0 : x > 780 ? 1 : (x - 540) / 240;
+        const m = mask * mask * (3 - 2 * mask);    // smoothstep
+        const v = 1.32;                            // exposure
+        return [
+            Math.min(1, fr * CH_BIAS.r * v * m),
+            Math.min(1, fg * CH_BIAS.g * v * m),
+            Math.min(1, fb * CH_BIAS.b * v * m)
+        ];
+    }
+
+    function fillCircle(cx, cy, r) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function fillDiamond(cx, cy, r) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy);
+        ctx.lineTo(cx, cy + r);
+        ctx.lineTo(cx - r, cy);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function drawLattice(scale, ox, oy) {
+        const pX = pitch * scale;
+        const pY = pitchY * scale;
+        const gR = greenR * scale;
+        const dR = diamondR * scale;
+        const pad = Math.max(pX, pY) * 2;
+
+        // Cell range in final screen coordinates (ox/oy shift the lattice,
+        // and the lens pass uses a hugely negative ox).
+        const rowStart = Math.floor((-pad - oy) / pY) - 1;
+        const rowEnd = Math.ceil((H + pad - oy) / pY) + 1;
+        const colStart = Math.floor((-pad - ox) / pX) - 2;
+        const colEnd = Math.ceil((W + pad - ox) / pX) + 2;
+
+        // Pass 1 — off-state lattice: the unlit grid texture that makes the
+        // card read as a physical panel, even behind the copy.
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = "rgba(226, 226, 235, 0.05)";
+        for (let row = rowStart; row <= rowEnd; row += 1) {
+            const shift = (row & 1) * pX * 0.5;
+            for (let col = colStart; col <= colEnd; col += 1) {
+                const x = col * pX + shift + ox;
+                const y = row * pY + oy;
+                const green = ((row + col) & 1) === 0;
+                if (green) fillCircle(x, y, gR); else fillDiamond(x, y, dR);
+            }
+        }
+
+        // Pass 2 — emission: additive halo, then the crisp emitter core.
+        ctx.globalCompositeOperation = "lighter";
+        for (let pass = 0; pass < 2; pass += 1) {
+            const halo = pass === 0;
+            for (let row = rowStart; row <= rowEnd; row += 1) {
+                const shift = (row & 1) * pX * 0.5;
+                for (let col = colStart; col <= colEnd; col += 1) {
+                    const x = col * pX + shift + ox;
+                    const y = row * pY + oy;
+
+                    const [fr, fg, fb] = field(x, y);
+                    if (fr + fg + fb < 0.02) continue;
+
+                    const green = ((row + col) & 1) === 0;
+                    let cr, cg, cb;
+                    if (green) { cg = fg; cr = fg * 0.35; cb = fg * 0.45; }
+                    else {
+                        const rbPhase = (Math.floor(col / 2) + row) & 1;
+                        if (rbPhase === 0) { cr = fr; cg = fr * 0.30; cb = fr * 0.55; }
+                        else { cb = fb; cr = fb * 0.40; cg = fb * 0.45; }
+                    }
+
+                    if (halo) {
+                        const a = Math.max(cr, cg, cb) * 0.19;
+                        if (a < 0.004) continue;
+                        ctx.fillStyle = `rgba(${(cr * 255) | 0},${(cg * 255) | 0},${(cb * 255) | 0},${a.toFixed(3)})`;
+                        const r = (green ? gR : dR) * 2.6;
+                        if (green) fillCircle(x, y, r); else fillDiamond(x, y, r);
+                    } else {
+                        const a = 0.55 + 0.45 * Math.max(cr, cg, cb);
+                        ctx.fillStyle = `rgba(${Math.min(255, (cr * 300) | 0)},${Math.min(255, (cg * 300) | 0)},${Math.min(255, (cb * 300) | 0)},${a.toFixed(3)})`;
+                        const r = (green ? gR : dR) * 1.0;
+                        if (green) fillCircle(x, y, r); else fillDiamond(x, y, r);
+                    }
+                }
+            }
+        }
+        ctx.globalCompositeOperation = "source-over";
+    }
+
+    drawLattice(1, 7, 4);
+
+    // Magnifier lens — a hard zoom onto the lattice, on-brand with the
+    // "Your Display, Magnified." premise.
+    const lensX = 958, lensY = 342, lensR = 132;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(lensX, lensY, lensR, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = "#000";
+    ctx.fill();
+    // Scale 2.5× about (lensX, lensY): the lattice keeps its anchor there.
+    drawLattice(2.5, lensX - (lensX - 7) * 2.5, lensY - (lensY - 4) * 2.5);
+    ctx.restore();
+
+    // Lens ring: soft outer glow + crisp edge.
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.strokeStyle = "rgba(240,240,248,0.14)";
+    ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.arc(lensX, lensY, lensR + 4, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = "rgba(232,232,240,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(lensX, lensY, lensR, 0, Math.PI * 2); ctx.stroke();
+
+    // Left shelf: guarantee copy sits on true black regardless of field.
+    const shelf = ctx.createLinearGradient(430, 0, 800, 0);
+    shelf.addColorStop(0, "rgba(0,0,0,1)");
+    shelf.addColorStop(0.55, "rgba(0,0,0,0.92)");
+    shelf.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = shelf;
+    ctx.fillRect(0, 0, 800, H);
+
+    // Corner falloff — keeps the eye on the composition.
+    const vig = ctx.createRadialGradient(760, 300, 240, 760, 300, 900);
+    vig.addColorStop(0, "rgba(0,0,0,0)");
+    vig.addColorStop(1, "rgba(0,0,0,0.55)");
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+})();
+</script>
+</body>
+</html>

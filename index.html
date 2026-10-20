@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Diamond PenTile AMOLED Simulator — px.ali.et</title>
-<meta name="description" content="A Diamond PenTile AMOLED simulator: watch images, GIFs and video resolve into true red, green and blue subpixel emitters — then author your own scenes.">
-<meta name="keywords" content="AMOLED, Diamond PenTile, display simulator, subpixel, OLED, screen technology, display analysis, pixel structure, subpixel simulator, AMOLED simulator">
+<meta name="description" content="A browser-based Diamond PenTile AMOLED simulator: inspect the subpixel matrix, chromatic fringing, optical bloom and emissive OLED panel physics in real time.">
+<meta name="keywords" content="AMOLED simulator, OLED screen simulator, Diamond PenTile, subpixel matrix, screen matrix test, AMOLED screen test, subpixel rendering, chromatic fringing, pentile matrix simulator, OLED panel physics, subpixel simulator">
 <meta name="author" content="Ali Khalid Sherif">
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
@@ -23,18 +23,18 @@
 <meta property="og:site_name" content="px.ali.et">
 <meta property="og:locale" content="en_US">
 <meta property="og:url" content="https://px.ali.et/">
-<meta property="og:title" content="Your Display, Magnified. — px.ali.et">
-<meta property="og:description" content="A Diamond PenTile AMOLED simulator: watch images, GIFs and video resolve into true subpixel emitters, then author your own animated scenes. Pure client-side, zero backend.">
+<meta property="og:title" content="Diamond PenTile AMOLED Simulator — px.ali.et">
+<meta property="og:description" content="Watch images, GIFs and video resolve into true red, green and blue Diamond PenTile emitters — subpixel matrix, optical bloom and emissive panel physics, all client-side.">
 <meta property="og:image" content="https://px.ali.et/assets/icons/og-preview.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="px.ali.et — a Diamond PenTile AMOLED subpixel simulator with colorful butterflies drifting over a true emitter grid">
+<meta property="og:image:alt" content="Diamond PenTile AMOLED Simulator — a magnified PenTile lattice of glowing green, red and blue subpixel emitters on true black">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Your Display, Magnified. — px.ali.et">
-<meta name="twitter:description" content="A Diamond PenTile AMOLED simulator: watch images, GIFs and video resolve into true subpixel emitters, then author your own animated scenes. Pure client-side, zero backend.">
+<meta name="twitter:title" content="Diamond PenTile AMOLED Simulator — px.ali.et">
+<meta name="twitter:description" content="Watch images, GIFs and video resolve into true red, green and blue Diamond PenTile emitters — subpixel matrix, optical bloom and emissive panel physics, all client-side.">
 <meta name="twitter:image" content="https://px.ali.et/assets/icons/og-preview.png">
-<meta name="twitter:image:alt" content="px.ali.et — a Diamond PenTile AMOLED subpixel simulator with colorful butterflies drifting over a true emitter grid">
+<meta name="twitter:image:alt" content="Diamond PenTile AMOLED Simulator — a magnified PenTile lattice of glowing green, red and blue subpixel emitters on true black">
 
 <link rel="canonical" href="https://px.ali.et/">
 <link rel="stylesheet" href="/styles/theme.css">
@@ -100,6 +100,54 @@
         { "@id": "https://px.ali.et/#studio" }
       ],
       "inLanguage": "en"
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://px.ali.et/#faq",
+      "name": "AMOLED Simulator FAQ",
+      "url": "https://px.ali.et/",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is a Diamond PenTile AMOLED simulator?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "A Diamond PenTile AMOLED simulator reconstructs, emitter by emitter, how an emissive OLED panel forms an image: every red, green and blue subpixel of a true Diamond PenTile matrix is lit individually, with the panel's optical spill, bloom and black matrix instead of a smoothed screenshot of one."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How does Diamond PenTile differ from an RGB stripe LCD?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "An RGB stripe pixel is three equal subpixels, each channel at full resolution. Diamond PenTile uses a staggered lattice of green circles with red and blue diamonds at half density — roughly twice as many green emitters — so neighbouring pixels share subpixels and each chroma channel resolves at half horizontal resolution."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Why does text look fringed on AMOLED screens?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Because a PenTile panel samples red and blue at half horizontal resolution and has no perfectly aligned subpixel columns, un-compensated rendering produces chromatic fringing: red and blue edges appear on sharp text and UI borders. Heavier font weights and subpixel-aware rendering reduce it."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I test my app's UI for AMOLED legibility online?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Open the simulator at https://px.ali.et/sim/, drop in a screenshot or export of your UI, set the subpixel pitch to a target panel density, and raise optical spill and bloom to see how type and highlights resolve on a real Diamond PenTile grid."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does px.ali.et upload my images or video anywhere?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. The whole site is pure client-side with zero backend — media, GIFs and video are decoded and rendered inside your own browser tab and never leave the device."
+          }
+        }
+      ]
     }
   ]
 }
@@ -110,7 +158,8 @@
     <canvas id="display" role="img" aria-label="Live AMOLED subpixel simulation: colorful butterflies drifting over a Diamond PenTile emitter grid"></canvas>
 </div>
 
-<main id="hero">
+<main id="page">
+<section id="hero">
     <header class="hero-top">
         <span class="wordmark">px<i>.</i>ali<i>.</i>et</span>
     </header>
@@ -129,9 +178,134 @@
     <footer class="hero-foot">
         <span>Pure client-side · zero backend · MIT</span>
         <span class="spacer"></span>
+        <a href="/guide/">Subpixel guide</a>
         <a href="mailto:px@ali.et">px@ali.et</a>
         <a href="https://github.com/alikhalidsherif/amoled" target="_blank" rel="noopener">GitHub</a>
     </footer>
+</section>
+
+<div id="tray">
+    <article class="tray-inner">
+
+        <section class="tray-section">
+            <p class="eyebrow">About &amp; mechanics</p>
+            <h2>What is a Diamond PenTile AMOLED Simulator?</h2>
+            <p>An AMOLED simulator reconstructs, emitter by emitter, how an emissive OLED panel
+                actually forms an image — instead of handing you a smoothed screenshot of one. On a
+                real AMOLED display every subpixel is an independent organic light-emitting diode:
+                red, green and blue emitters switch on and off individually, strict black matrix gaps
+                sit between them, and fine detail is resolved by the panel's subpixel geometry rather
+                than by three tidy rectangles per pixel.</p>
+            <p>px.ali.et is a browser-based, pure client-side AMOLED simulator. Drop in an image, GIF
+                or video — or author your own scene in AMO Studio — and the renderer lights every
+                emitter of a true Diamond PenTile matrix separately, with tunable pitch, optical spill
+                and bloom, so you see your content the way a modern phone panel resolves it.</p>
+        </section>
+
+        <section class="tray-section">
+            <h2>Inside the Diamond PenTile Subpixel Matrix</h2>
+            <p>Diamond PenTile — the subpixel layout used by most modern phone AMOLED panels — arranges
+                emitters on a staggered lattice: green subpixels as small circles in a dense checker,
+                red and blue subpixels as diamonds interleaved at half that density. Because green
+                carries most of the luminance, a PenTile panel has roughly twice as many green emitters
+                as red or blue, and neighbouring pixels share them. It is a different contract from the
+                RGB stripe pixel of an LCD or LED monitor, and the difference is directly visible when
+                you run a screen matrix test at high magnification.</p>
+            <details class="deep">
+                <summary>PenTile vs RGB stripe — the density math</summary>
+                <p>An RGB stripe pixel is three equal rectangles: three subpixels, each channel sampled
+                    at full horizontal resolution. Diamond PenTile averages closer to two subpixels per
+                    pixel (2G + 1R + 1B across every two-pixel pair), with each chroma channel at half
+                    horizontal resolution. Render a sharp vertical edge or 10&nbsp;px text through an
+                    un-compensated lattice and you get <strong>chromatic fringing</strong> — red and
+                    blue edges where the source image had none. Real panels hide this with
+                    subpixel-rendering algorithms in the driver IC; this simulator deliberately shows
+                    you the raw, physical lattice.</p>
+            </details>
+        </section>
+
+        <section class="tray-section">
+            <h2>Simulate Emissive OLED Panel Physics &amp; Display Artifacts</h2>
+            <p>The engine treats each subpixel as a physical light source rather than a filtered
+                rectangle: an emitter response curve <span class="mono">L = I<sup>γ</sup></span>
+                (default γ&nbsp;=&nbsp;1.8) applied in linear light; per-channel peak output (red 0.70,
+                green 1.00, blue 0.55); a Gaussian optical spill halo bleeding into neighbours; and a
+                brightness-dependent bloom over the black matrix. Raise spill and colors re-mix
+                optically before your eye integrates them; drop it and the raw lattice shows its
+                honest, uncompensated character.</p>
+            <ul>
+                <li><strong>Chromatic fringing</strong> on text and hard UI edges</li>
+                <li><strong>Subpixel grain</strong> in smooth gradients and dark tones</li>
+                <li><strong>Optical bloom</strong> around highlights, separate from micro-spill</li>
+                <li><strong>Off-pixel glow</strong> and true-black matrix behaviour</li>
+            </ul>
+        </section>
+
+        <section class="tray-section">
+            <h2>How to Test Text &amp; UI Legibility on AMOLED Displays</h2>
+            <ol>
+                <li>Open the <a href="/sim/">AMOLED simulator</a> and drop in a screenshot or export of
+                    your UI at real device resolution.</li>
+                <li>Set the subpixel <span class="mono">pitch</span> to a target panel density — auto
+                    density keeps the grid visible on any screen, manual pitch emulates a specific panel.</li>
+                <li>Raise <span class="mono">optical spill</span> and <span class="mono">bloom</span> to
+                    watch highlights halo; drop the pitch to judge small-type legibility and fringing at
+                    true reading distance.</li>
+                <li>Compare against the built-in test pattern for pure grid behaviour, then iterate on
+                    font weights and sizes until your type stays crisp on the lattice.</li>
+            </ol>
+            <p>Building animated content instead? <a href="/gen/">AMO Studio</a> authors layered
+                <span class="mono">.amo</span> scenes — shapes, gradients, math and media — rendered on
+                the same Diamond PenTile grid. The long-form technical breakdown lives in the
+                <a href="/guide/">AMOLED subpixel guide</a>.</p>
+        </section>
+
+        <section class="tray-section faq">
+            <h2>AMOLED Simulator FAQ</h2>
+            <details class="deep">
+                <summary>What is a Diamond PenTile AMOLED simulator?</summary>
+                <p>It reconstructs, emitter by emitter, how an emissive OLED panel forms an image:
+                    every red, green and blue subpixel of a true Diamond PenTile matrix is lit
+                    individually, complete with the panel's optical spill, bloom and black matrix.</p>
+            </details>
+            <details class="deep">
+                <summary>How does Diamond PenTile differ from an RGB stripe LCD?</summary>
+                <p>An RGB stripe pixel is three equal subpixels with each channel at full resolution.
+                    Diamond PenTile is a staggered lattice of green circles with red and blue diamonds
+                    at half density — roughly twice as many green emitters — so neighbouring pixels
+                    share subpixels and each chroma channel resolves at half horizontal resolution.</p>
+            </details>
+            <details class="deep">
+                <summary>Why does text look fringed on AMOLED screens?</summary>
+                <p>Because red and blue resolve at half horizontal resolution and the lattice has no
+                    perfectly aligned subpixel columns, un-compensated rendering produces chromatic
+                    fringing on sharp glyph edges. Heavier font weights and subpixel-aware rendering
+                    algorithms reduce it.</p>
+            </details>
+            <details class="deep">
+                <summary>Can I test my app's UI for AMOLED legibility online?</summary>
+                <p>Yes — open the <a href="/sim/">simulator</a>, drop in a screenshot of your UI, set
+                    the pitch to a target panel density and raise optical spill and bloom. Everything
+                    runs in your tab; no upload, no account, no backend.</p>
+            </details>
+            <details class="deep">
+                <summary>Does px.ali.et upload my images or video anywhere?</summary>
+                <p>No. The site is pure client-side with zero backend — media, GIFs and video are
+                    decoded and rendered inside your own browser tab and never leave the device.</p>
+            </details>
+        </section>
+
+        <section class="tray-section cta">
+            <h2>Explore the AMOLED Simulator</h2>
+            <div class="hero-actions">
+                <a class="btn primary" href="/sim/">Open the simulator</a>
+                <a class="btn secondary" href="/guide/">Read the subpixel guide</a>
+                <a class="btn secondary" href="/gen/">AMO Studio</a>
+            </div>
+        </section>
+
+    </article>
+</div>
 </main>
 
 <script src="/src/gifuct.js"></script>

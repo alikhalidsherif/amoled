@@ -26,11 +26,14 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html {
+    scroll-behavior: smooth;
+}
+
 html, body {
     width: 100%;
-    height: 100%;
     background: #000;
-    overflow: hidden;
+    overflow-x: hidden;
 }
 
 body {
@@ -41,6 +44,7 @@ body {
 #display-shell {
     position: fixed;
     inset: 0;
+    z-index: 0;
     background: #000;
 }
 
@@ -63,10 +67,15 @@ body {
         radial-gradient(120% 90% at 50% 40%, rgba(0,0,0,.18) 0%, rgba(0,0,0,.55) 68%, rgba(0,0,0,.82) 100%);
 }
 
-#hero {
+#page {
     position: relative;
     z-index: 2;
-    height: 100%;
+}
+
+#hero {
+    position: relative;
+    min-height: 100vh;
+    min-height: 100svh;
     display: flex;
     flex-direction: column;
     padding: clamp(20px, 4vw, 48px);
@@ -173,6 +182,157 @@ body {
 }
 
 .hero-foot .spacer { flex: 1; }
+
+/* ---------- Content tray: crawlable "About & mechanics" copy scrolling
+   over the fixed simulation. Opaque so the canvas only shows behind the
+   hero; a gradient plume above the top edge softens the hand-off. */
+
+#tray {
+    position: relative;
+    background: var(--bg);
+    padding: clamp(56px, 8vw, 104px) clamp(20px, 4vw, 48px) clamp(40px, 6vw, 72px);
+}
+
+#tray::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: clamp(90px, 14vw, 180px);
+    transform: translateY(-100%);
+    pointer-events: none;
+    background: linear-gradient(to bottom, rgba(0,0,0,0) 0%, var(--bg) 100%);
+}
+
+.tray-inner {
+    max-width: 780px;
+    margin: 0 auto;
+}
+
+.tray-section {
+    padding: clamp(28px, 4vw, 44px) 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.tray-section:last-child { border-bottom: 0; }
+
+.eyebrow {
+    font-family: var(--mono-font);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+}
+
+.tray-section h2 {
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-weight: 400;
+    font-size: clamp(28px, 4vw, 40px);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    color: var(--txt);
+    text-wrap: balance;
+}
+
+.tray-section h2 + p { margin-top: clamp(14px, 2vw, 20px); }
+
+.tray-section p,
+.tray-section li {
+    font-size: clamp(14px, 1.4vw, 15.5px);
+    line-height: 1.7;
+    color: var(--dim);
+    max-width: 68ch;
+}
+
+.tray-section p + p { margin-top: 14px; }
+.tray-section ol + p,
+.tray-section ul + p { margin-top: 18px; }
+
+.tray-section strong { color: var(--txt); font-weight: 600; }
+
+.tray-section a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-color: var(--accent-line);
+    text-underline-offset: 3px;
+    transition: text-decoration-color .15s ease;
+}
+
+.tray-section a:hover { text-decoration-color: var(--accent); }
+
+.tray-section ul,
+.tray-section ol {
+    margin-top: 16px;
+    padding-left: 22px;
+    display: grid;
+    gap: 8px;
+}
+
+.tray-section li::marker { color: var(--accent); }
+
+.mono {
+    font-family: var(--mono-font);
+    font-size: .92em;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+}
+
+/* Collapsible deep-dives: content stays in the DOM for crawlers. */
+details.deep {
+    margin-top: 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--panel) 72%, transparent);
+    overflow: hidden;
+}
+
+details.deep + details.deep { margin-top: 10px; }
+
+details.deep summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 13px 16px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--txt);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: background .15s ease;
+}
+
+details.deep summary::-webkit-details-marker { display: none; }
+
+details.deep summary::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    background: var(--accent);
+    transform: rotate(45deg);
+    transition: transform .18s ease;
+}
+
+details.deep summary:hover { background: var(--panel-2); }
+details[open].deep summary::before { transform: rotate(90deg); }
+
+details.deep p {
+    padding: 0 16px 15px 33px;
+    font-size: 14px;
+}
+
+details.deep a { color: var(--accent); }
+
+.tray-section.faq details.deep summary { font-weight: 500; }
+
+.tray-section.cta { border-bottom: 0; padding-bottom: 0; }
+
+.tray-section.cta .hero-actions { margin-top: 22px; }
 
 :focus-visible {
     outline: 2px solid var(--accent);

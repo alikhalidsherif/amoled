@@ -1,0 +1,329 @@
+/* /guide/ — long-form AMOLED subpixel guide. Shares design tokens with
+   styles/theme.css; serif display face matches the landing hero. */
+
+@font-face {
+    font-family: "Instrument Serif";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("/assets/fonts/instrument-serif-latin.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+        U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+        U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Instrument Serif";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("/assets/fonts/instrument-serif-latin-ext.woff2") format("woff2");
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02DF,
+        U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+        U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 84px;
+}
+
+body {
+    background: var(--bg);
+    color: var(--dim);
+    font-family: var(--ui-font);
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); }
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* ---------- Site chrome ---------- */
+
+.site-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 14px clamp(18px, 4vw, 40px);
+    background: color-mix(in oklab, var(--bg) 86%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+}
+
+.wordmark {
+    font-family: var(--mono-font);
+    font-size: 14px;
+    letter-spacing: .04em;
+    color: var(--txt);
+    text-decoration: none;
+}
+
+.wordmark i { color: var(--accent); font-style: normal; }
+
+.site-nav {
+    margin-left: auto;
+    display: flex;
+    gap: clamp(14px, 3vw, 26px);
+}
+
+.site-nav a {
+    font-size: 13px;
+    color: var(--dim);
+    text-decoration: none;
+    transition: color .15s ease;
+}
+
+.site-nav a:hover { color: var(--txt); }
+
+.site-foot {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 32px clamp(18px, 4vw, 40px) 48px;
+    font-size: 11.5px;
+    color: var(--faint);
+    border-top: 1px solid var(--line);
+}
+
+.site-foot .spacer { flex: 1; }
+
+.site-foot a { color: var(--dim); text-decoration: none; }
+.site-foot a:hover { color: var(--txt); }
+
+/* ---------- Document ---------- */
+
+.doc {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: clamp(40px, 7vw, 88px) clamp(18px, 4vw, 40px) clamp(48px, 7vw, 96px);
+}
+
+.eyebrow {
+    font-family: var(--mono-font);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+.doc h1 {
+    margin-top: 14px;
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-weight: 400;
+    font-size: clamp(38px, 6vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+    color: var(--txt);
+    text-wrap: balance;
+}
+
+.lede {
+    margin-top: 18px;
+    max-width: 66ch;
+    font-size: clamp(15px, 1.6vw, 17px);
+    line-height: 1.65;
+    color: var(--dim);
+}
+
+/* Table of contents */
+.toc {
+    margin-top: clamp(28px, 4vw, 40px);
+    padding: 18px 22px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.toc p {
+    font-family: var(--mono-font);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin-bottom: 10px;
+}
+
+.toc ol {
+    list-style: none;
+    display: grid;
+    gap: 7px;
+    counter-reset: toc;
+}
+
+.toc li {
+    counter-increment: toc;
+    font-size: 14px;
+}
+
+.toc li::before {
+    content: counter(toc, decimal-leading-zero);
+    font-family: var(--mono-font);
+    font-size: 11.5px;
+    color: var(--accent);
+    margin-right: 10px;
+}
+
+.doc .toc a {
+    color: var(--txt);
+    text-decoration: none;
+}
+
+.doc .toc a:hover { color: var(--accent); text-decoration: underline; }
+
+/* ---------- Article ---------- */
+
+.doc section { padding-top: clamp(36px, 5vw, 56px); }
+
+.doc h2 {
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-weight: 400;
+    font-size: clamp(27px, 3.6vw, 38px);
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    color: var(--txt);
+    text-wrap: balance;
+}
+
+.doc h3 {
+    margin-top: 26px;
+    font-size: clamp(16px, 1.8vw, 18px);
+    font-weight: 650;
+    color: var(--txt);
+}
+
+.doc h2 + p,
+.doc h3 + p { margin-top: 14px; }
+
+.doc ul + p,
+.doc ol + p { margin-top: 18px; }
+
+.doc p, .doc li {
+    font-size: clamp(14.5px, 1.4vw, 16px);
+    line-height: 1.75;
+    color: var(--dim);
+    max-width: 70ch;
+}
+
+.doc p + p { margin-top: 14px; }
+
+.doc strong { color: var(--txt); font-weight: 600; }
+.doc em { color: var(--txt); }
+
+.doc a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-color: var(--accent-line);
+    text-underline-offset: 3px;
+    transition: text-decoration-color .15s ease;
+}
+
+.doc a:hover { text-decoration-color: var(--accent); }
+
+.doc ul, .doc ol {
+    margin-top: 16px;
+    padding-left: 24px;
+    display: grid;
+    gap: 10px;
+}
+
+.doc li::marker { color: var(--accent); }
+
+.mono {
+    font-family: var(--mono-font);
+    font-size: .92em;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+}
+
+/* Collapsible FAQ (content stays in the DOM for crawlers) */
+details.deep {
+    margin-top: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--panel) 72%, transparent);
+    overflow: hidden;
+}
+
+details.deep summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 14px 17px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--txt);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: background .15s ease;
+}
+
+details.deep summary::-webkit-details-marker { display: none; }
+
+details.deep summary::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    background: var(--accent);
+    transform: rotate(45deg);
+    transition: transform .18s ease;
+}
+
+details.deep summary:hover { background: var(--panel-2); }
+details[open].deep summary::before { transform: rotate(90deg); }
+
+details.deep p { padding: 0 17px 16px 34px; font-size: 14.5px; }
+
+/* CTA */
+.cta .actions {
+    margin-top: 22px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 22px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background .15s ease, border-color .15s ease;
+}
+
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { background: color-mix(in oklab, var(--accent) 85%, white); }
+
+.btn.secondary {
+    border: 1px solid var(--line);
+    color: var(--txt);
+    background: var(--panel);
+}
+
+.btn.secondary:hover { border-color: var(--accent-line); }
+
+@media (max-width: 640px) {
+    .site-head { gap: 14px; }
+    .toc { padding: 16px 16px; }
+}

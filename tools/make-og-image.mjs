@@ -1,7 +1,8 @@
 // Regenerates the Open Graph share image (assets/icons/og-preview.png,
-// 1200x630) from the live landing page. Runs with prefers-reduced-motion
-// so the butterfly pose (t=4.2) and the accent hue (static 250) are
-// deterministic across runs.
+// 1200x630) from the designed card at tools/og-card.html — a deterministic,
+// hand-composed layout (magnified Diamond PenTile lattice + headline), NOT a
+// screenshot of the live site. Waits for the Instrument Serif woff2 before
+// capturing so the headline never falls back to a system serif.
 import puppeteer from "puppeteer-core";
 import http from "http";
 import fs from "fs";
@@ -30,19 +31,15 @@ const browser = await puppeteer.launch({
     args: ["--no-sandbox", "--disable-gpu", "--enable-unsafe-swiftshader"]
 });
 const page = await browser.newPage();
-await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
 await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 1 });
-await page.goto(`${base}/`, { waitUntil: "networkidle0", timeout: 60000 });
+await page.goto(`${base}/tools/og-card.html`, { waitUntil: "networkidle0", timeout: 60000 });
 
-// Wait for boot, then re-render the deterministic reduced-motion pose so the
-// captured frame is exactly t=4.2 regardless of capture timing.
-const deadline = Date.now() + 30000;
-while (Date.now() < deadline) {
-    if (await page.evaluate(() => !!window.__landing)) break;
-    await new Promise(r => setTimeout(r, 250));
-}
-await page.evaluate(() => window.__landing.renderFrame(4.2));
-await new Promise(r => setTimeout(r, 800));
+// Fonts + the one-shot canvas paint must both be settled before capture.
+await page.evaluate(() => document.fonts.ready);
+const loaded = await page.evaluate(() => document.fonts.check('16px "Instrument Serif"'));
+if (!loaded) console.warn("warn: Instrument Serif did not load — headline may fall back");
+await new Promise(r => setTimeout(r, 400));
+
 await page.screenshot({ path: OUT });
 console.log("wrote", OUT);
 await browser.close();
