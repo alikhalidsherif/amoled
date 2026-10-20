@@ -1782,6 +1782,22 @@ async function copyText(text) {
     }
 }
 
+// Clipboard reads can stall indefinitely — headless browsers, denied
+// permission prompts and some embedders return a promise that never
+// settles. The paste flow must never hang on one: race the read against a
+// short timeout and fall back to an empty prompt the user can paste into.
+function readClipboardText(timeoutMs) {
+    try {
+        if (!navigator.clipboard?.readText) return Promise.resolve("");
+        return Promise.race([
+            navigator.clipboard.readText().then(t => t || ""),
+            new Promise(resolve => setTimeout(() => resolve(""), timeoutMs))
+        ]).catch(() => "");
+    } catch {
+        return Promise.resolve("");
+    }
+}
+
 $("btn-ai-prompt").addEventListener("click", async () => {
     const ok = await copyText(ENGINE_PROMPT);
     setStatus(ok
@@ -1791,10 +1807,7 @@ $("btn-ai-prompt").addEventListener("click", async () => {
 
 $("btn-ai-paste").addEventListener("click", async () => {
     if (!workingRaw) return;
-    let text = "";
-    try {
-        if (navigator.clipboard?.readText) text = await navigator.clipboard.readText();
-    } catch { /* permission denied — fall back to manual paste */ }
+    const text = await readClipboardText(400);
     const entered = prompt(
         text
             ? "Clipboard contents (edit if needed, then OK):"
